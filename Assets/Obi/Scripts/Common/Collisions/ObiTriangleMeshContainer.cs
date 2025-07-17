@@ -76,30 +76,38 @@ namespace Obi
             ObiTriangleMeshHandle handle = new ObiTriangleMeshHandle(null);
 
             if (source != null && !handles.TryGetValue(source, out handle))
-            { 
-                var sourceTris = source.triangles;
-                var sourceVertices = source.vertices;
-
-                // Build a bounding interval hierarchy from the triangles:
-                IBounded[] t = new IBounded[sourceTris.Length/3];
-                for (int i = 0; i < t.Length; ++i)
+            {
+                if (source.isReadable)
                 {
-                    int t1 = sourceTris[i * 3];
-                    int t2 = sourceTris[i * 3 + 1];
-                    int t3 = sourceTris[i * 3 + 2];
-                    t[i] = new Triangle(t1,t2,t3, sourceVertices[t1], sourceVertices[t2], sourceVertices[t3]);
+                    var sourceTris = source.triangles;
+                    var sourceVertices = source.vertices;
+
+                    // Build a bounding interval hierarchy from the triangles:
+                    IBounded[] t = new IBounded[sourceTris.Length / 3];
+                    for (int i = 0; i < t.Length; ++i)
+                    {
+                        int t1 = sourceTris[i * 3];
+                        int t2 = sourceTris[i * 3 + 1];
+                        int t3 = sourceTris[i * 3 + 2];
+                        t[i] = new Triangle(t1, t2, t3, sourceVertices[t1], sourceVertices[t2], sourceVertices[t3]);
+                    }
+                    var sourceBih = BIH.Build(ref t);
+
+                    Triangle[] tris = Array.ConvertAll(t, x => (Triangle)x);
+
+                    handle = new ObiTriangleMeshHandle(source, headers.count);
+                    handles.Add(source, handle);
+
+                    headers.Add(new TriangleMeshHeader(bihNodes.count, sourceBih.Length, triangles.count, tris.Length, vertices.count, sourceVertices.Length));
+                    bihNodes.AddRange(sourceBih);
+                    triangles.AddRange(tris);
+                    vertices.AddRange(sourceVertices);
                 }
-                var sourceBih = BIH.Build(ref t);
-
-                Triangle[] tris = Array.ConvertAll(t, x => (Triangle)x);
-
-                handle = new ObiTriangleMeshHandle(source, headers.count);
-                handles.Add(source, handle);
-                headers.Add(new TriangleMeshHeader(bihNodes.count, sourceBih.Length, triangles.count, tris.Length, vertices.count, sourceVertices.Length));
-
-                bihNodes.AddRange(sourceBih);
-                triangles.AddRange(tris);
-                vertices.AddRange(sourceVertices);
+                else
+                {
+                    handle = new ObiTriangleMeshHandle(source);
+                    handles.Add(source, handle);
+                }
             }
 
             return handle;

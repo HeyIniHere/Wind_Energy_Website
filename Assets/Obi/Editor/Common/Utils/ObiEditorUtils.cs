@@ -4,6 +4,7 @@ using UnityEngine.SceneManagement;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using System.IO;
+using UnityEngine.Rendering;
 
 namespace Obi{
 
@@ -127,17 +128,7 @@ namespace Obi{
         public static GameObject CreateNewSolver()
         {
             // Root for the actors.
-            var root = new GameObject("Obi Solver");
-            ObiSolver solver = root.AddComponent<ObiSolver>();
-
-            // Try to find a fixed updater in the scene (though other kinds of updaters can exist, updating in FixedUpdate is the preferred option).
-            ObiFixedUpdater updater = StageUtility.GetCurrentStageHandle().FindComponentOfType<ObiFixedUpdater>();
-            // If we could not find an fixed updater in the scene, add one to the solver object.
-            if (updater == null)
-                updater = root.AddComponent<ObiFixedUpdater>();
-
-            // Add the solver to the updater:
-            updater.solvers.Add(solver);
+            var root = new GameObject("Obi Solver", typeof(ObiSolver));
 
             // Works for all stages.
             StageUtility.PlaceGameObjectInCurrentStage(root);
@@ -230,7 +221,34 @@ namespace Obi{
             // Return the currently selected item's index
             return selected;
         }
-	}
+
+        public static void DrawArrowHandle(Vector3 posA, Vector3 posB, float headAngle = 30, float headLength = 0.18f)        {
+            Handles.DrawLine(posA, posB);
+
+            var look = Quaternion.LookRotation(posA - posB, Camera.current.transform.forward);
+            var one = look * Quaternion.Euler(0, 180 + headAngle, 0) * new Vector3(0, 0, 1);
+            var two = look * Quaternion.Euler(0, 180 - headAngle, 0) * new Vector3(0, 0, 1);
+
+            var sizeA = HandleUtility.GetHandleSize(posA) * headLength;
+            Handles.DrawLine(posA, posA + one * sizeA);
+            Handles.DrawLine(posA, posA + two * sizeA);
+
+            var sizeB = HandleUtility.GetHandleSize(posB) * headLength;
+            Handles.DrawLine(posB, posB - one * sizeB);
+            Handles.DrawLine(posB, posB - two * sizeB);        }
+
+        public static Material GetDefaultMaterial()
+        {
+            if (GraphicsSettings.defaultRenderPipeline != null)
+            {
+                return GraphicsSettings.defaultRenderPipeline.defaultMaterial;
+            }
+            else
+            {
+                return AssetDatabase.GetBuiltinExtraResource<Material>("Default-Diffuse.mat");
+            }
+        }
+    }
 }
 
 

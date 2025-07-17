@@ -24,7 +24,7 @@ namespace Obi
         [ReadOnly] public NativeArray<float> inverseRotationalMasses;
         [ReadOnly] public NativeArray<quaternion> previousOrientations;
         [NativeDisableParallelForRestriction] public NativeArray<quaternion> orientations;
-        [NativeDisableParallelForRestriction] [WriteOnly] public NativeArray<float4> angularVelocities;
+        [NativeDisableParallelForRestriction] public NativeArray<float4> angularVelocities;
 
         [ReadOnly] public float deltaTime;
         [ReadOnly] public bool is2D;
@@ -49,7 +49,7 @@ namespace Obi
                 velocities[i] = float4.zero;
 
             if (inverseRotationalMasses[i] > 0)
-                angularVelocities[i] = BurstIntegration.DifferentiateAngular(orientations[i], previousOrientations[i], deltaTime);
+                angularVelocities[i] = new float4(BurstIntegration.DifferentiateAngular(orientations[i], previousOrientations[i], deltaTime).xyz, angularVelocities[i].w);
             else
                 angularVelocities[i] = float4.zero;
         }

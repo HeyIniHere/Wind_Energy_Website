@@ -8,38 +8,38 @@ namespace Obi
     [Serializable]
     public class ObiShapeMatchingConstraintsBatch : ObiConstraintsBatch
     {
-        protected IShapeMatchingConstraintsBatchImpl m_BatchImpl;  
+        protected IShapeMatchingConstraintsBatchImpl m_BatchImpl;
 
         /// <summary>
         /// index of the first particle in each constraint.
         /// </summary>
-        public ObiNativeIntList firstIndex = new ObiNativeIntList();           
+        public ObiNativeIntList firstIndex = new ObiNativeIntList();
 
         /// <summary>
         /// amount of particles in each constraint.
         /// </summary>
-        public ObiNativeIntList numIndices = new ObiNativeIntList();            
+        public ObiNativeIntList numIndices = new ObiNativeIntList();
 
         /// <summary>
         /// whether the constraint is implicit (0) or explicit (>0).
         /// </summary>
-        public ObiNativeIntList explicitGroup = new ObiNativeIntList();         
+        public ObiNativeIntList explicitGroup = new ObiNativeIntList();
 
         /// <summary>
         /// 5 floats per constraint: stiffness, plastic yield, creep, recovery and max deformation.
         /// </summary>
-        public ObiNativeFloatList materialParameters = new ObiNativeFloatList(); 
+        public ObiNativeFloatList materialParameters = new ObiNativeFloatList();
 
 
         /// <summary>
         /// rest center of mass for each constraint.
         /// </summary>
-        public ObiNativeVector4List restComs = new ObiNativeVector4List();      
+        public ObiNativeVector4List restComs = new ObiNativeVector4List();
 
         /// <summary>
         /// current center of mass for each constraint.
         /// </summary>
-        public ObiNativeVector4List coms = new ObiNativeVector4List();       
+        public ObiNativeVector4List coms = new ObiNativeVector4List();
 
         /// <summary>
         /// current best-match orientation for each constraint.
@@ -96,7 +96,7 @@ namespace Obi
         {
             int first = firstIndex[index];
             int num = numIndices[index];
-            for (int i = first; i < first + num; ++i) 
+            for (int i = first; i < first + num; ++i)
                 particles.Add(particleIndices[i]);
         }
 
@@ -154,7 +154,7 @@ namespace Obi
                 // shape matching constraint particle indices are not reordered when deactivating constraints,
                 // so instead of using batch.activeConstraintCount, batch.constraintCount. We need all of them.
                 int numActiveIndices = 0;
-                for (int i = 0; i < batch.constraintCount; ++i) 
+                for (int i = 0; i < batch.constraintCount; ++i)
                     numActiveIndices += batch.numIndices[i];
 
                 particleIndices.ResizeUninitialized(initialIndexCount + numActiveIndices);
@@ -209,6 +209,19 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            firstIndex.Dispose();
+            numIndices.Dispose();
+            explicitGroup.Dispose();
+            materialParameters.Dispose();
+
+            restComs.Dispose();
+            coms.Dispose();
+            orientations.Dispose();
+            linearTransforms.Dispose();
+            plasticDeformations.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

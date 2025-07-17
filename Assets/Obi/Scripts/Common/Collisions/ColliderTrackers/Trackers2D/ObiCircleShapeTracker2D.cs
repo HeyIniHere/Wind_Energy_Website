@@ -12,7 +12,7 @@ namespace Obi{
 			this.collider = collider;
 		}	
 
-		public override bool UpdateIfNeeded ()
+		public override void UpdateIfNeeded ()
         {
 
 			CircleCollider2D sphere = collider as CircleCollider2D;
@@ -23,12 +23,14 @@ namespace Obi{
 
             // update collider:
             var shape = world.colliderShapes[index];
-            shape.is2D = 1;
+            shape.is2D = true;
             shape.type = ColliderShape.ShapeType.Sphere;
             shape.filter = source.Filter;
-            shape.flags = sphere.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = sphere.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.center = sphere.offset;
             shape.size = Vector3.one * sphere.radius;
@@ -41,10 +43,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(sphere.transform,true);
+            trfm.FromTransform2D(sphere.transform, source.Rigidbody as ObiRigidbody2D);
             world.colliderTransforms[index] = trfm;
-
-            return true;
         }
 
 	}

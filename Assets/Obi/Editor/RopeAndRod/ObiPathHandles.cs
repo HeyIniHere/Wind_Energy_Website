@@ -28,27 +28,9 @@ namespace Obi
             // select vertex on mouse click:
             switch (Event.current.GetTypeForControl(controlID))
             {
-
-                case EventType.MouseDown:
-                    {
-
-                        if ((Event.current.modifiers & EventModifiers.Control) == 0 &&
-                            (HandleUtility.nearestControl != controlID || Event.current.button != 0)) break;
-
-                        startPos = Event.current.mousePosition;
-                        marquee.Set(0, 0, 0, 0);
-
-                        // If the user is pressing shift, accumulate selection.
-                        if ((Event.current.modifiers & EventModifiers.Shift) == 0 && (Event.current.modifiers & EventModifiers.Alt) == 0)
-                        {
-                            for (int i = 0; i < selectionStatus.Length; i++)
-                                selectionStatus[i] = false;
-                        }
-
-                        // If the user is holding down control, dont allow selection of other objects and use marquee tool.
-                        if ((Event.current.modifiers & EventModifiers.Control) != 0)
-                            GUIUtility.hotControl = controlID;
-
+                case EventType.Layout:
+                case EventType.MouseMove:
+                    
                         float minSqrDistance = System.Single.MaxValue;
                         float sqrMinSelectionDistance = minSelectionDistance * minSelectionDistance;
 
@@ -59,50 +41,94 @@ namespace Obi
                             Vector2 pos = HandleUtility.WorldToGUIPoint(path.points[i].position);
 
                             // get distance from mouse position to particle position:
-                            float sqrDistance = Vector2.SqrMagnitude(startPos - pos);
+                            float sqrDistance = Vector2.SqrMagnitude(Event.current.mousePosition - pos);
 
                             // check if this control point is closer to the cursor that any previously considered point.
                             if (sqrDistance < sqrMinSelectionDistance && sqrDistance < minSqrDistance)
-                            {
+                            { 
                                 minSqrDistance = sqrDistance;
-                                selectedCPIndex = i;
                             }
 
                         }
+                        HandleUtility.AddControl(controlID, Mathf.Sqrt(minSqrDistance));
+                    
+                    break;
 
-                        if (selectedCPIndex >= 0)
-                        { // toggle particle selection status.
+                case EventType.MouseDown:
+                    
+                        marquee.Set(0, 0, 0, 0);
+                        startPos = Event.current.mousePosition;
 
-                            selectionStatus[selectedCPIndex] = !selectionStatus[selectedCPIndex];
-                            selectionStatusChanged = true;
+                        if (Event.current.button == 0)
+                        {
 
-                            // Prevent spline deselection if we have selected a particle:
-                            GUIUtility.hotControl = controlID;
-                            Event.current.Use();
+                            if (HandleUtility.nearestControl == controlID)
+                            {
+                                GUIUtility.hotControl = controlID;
 
+                                // If the user is pressing shift or ctrl, accumulate selection.
+                                if ((Event.current.modifiers & (EventModifiers.Shift | EventModifiers.Control)) == 0 && (Event.current.modifiers & EventModifiers.Alt) == 0)
+                                {
+                                    for (int i = 0; i < selectionStatus.Length; i++)
+                                        selectionStatus[i] = false;
+
+                                    selectionStatusChanged = true;
+                                }
+
+                                minSqrDistance = System.Single.MaxValue;
+                                sqrMinSelectionDistance = minSelectionDistance * minSelectionDistance;
+
+                                for (int i = 0; i < path.ControlPointCount; i++)
+                                {
+
+                                    // get particle position in gui space:
+                                    Vector2 pos = HandleUtility.WorldToGUIPoint(path.points[i].position);
+
+                                    // get distance from mouse position to particle position:
+                                    float sqrDistance = Vector2.SqrMagnitude(startPos - pos);
+
+                                    // check if this control point is closer to the cursor that any previously considered point.
+                                    if (sqrDistance < sqrMinSelectionDistance && sqrDistance < minSqrDistance)
+                                    {
+                                        minSqrDistance = sqrDistance;
+                                        selectedCPIndex = i;
+                                    }
+
+                                }
+
+                                if (selectedCPIndex >= 0)
+                                { // toggle particle selection status.
+
+                                    selectionStatus[selectedCPIndex] = !selectionStatus[selectedCPIndex];
+                                    selectionStatusChanged = true;
+
+                                    // Prevent spline deselection if we have selected a particle:
+                                    Event.current.Use();
+
+                                }
+                            }
+                            else if ((Event.current.modifiers & (EventModifiers.Shift | EventModifiers.Control)) == 0 && (Event.current.modifiers & EventModifiers.Alt) == 0)
+                            {
+                                for (int i = 0; i < selectionStatus.Length; i++)
+                                    selectionStatus[i] = false;
+
+                                selectionStatusChanged = true;
+                            }
                         }
-                        else if (Event.current.modifiers == EventModifiers.None)
-                        { // deselect all particles:
-                            for (int i = 0; i < selectionStatus.Length; i++)
-                                selectionStatus[i] = false;
-
-                            selectionStatusChanged = true;
-                        }
-
-                    }
+                    
                     break;
 
                 case EventType.MouseDrag:
 
-                    if (GUIUtility.hotControl == controlID)
+                    if (Event.current.button == 0 && (Event.current.modifiers & EventModifiers.Alt) == 0)
                     {
-
                         currentPos = Event.current.mousePosition;
                         if (!dragging && Vector2.Distance(startPos, currentPos) > 5)
                         {
                             dragging = true;
                         }
-                        else
+
+                        if (dragging)
                         {
                             GUIUtility.hotControl = controlID;
                             Event.current.Use();
@@ -159,34 +185,6 @@ namespace Obi
                         GUI.skin = oldSkin;
                     }
 
-                    break;
-
-
-                case EventType.Layout:
-                    {
-
-                        float minSqrDistance = System.Single.MaxValue;
-                        float sqrMinSelectionDistance = minSelectionDistance * minSelectionDistance;
-
-                        for (int i = 0; i < path.ControlPointCount; i++)
-                        {
-
-                            // get particle position in gui space:
-                            Vector2 pos = HandleUtility.WorldToGUIPoint(path.points[i].position);
-
-                            // get distance from mouse position to particle position:
-                            float sqrDistance = Vector2.SqrMagnitude(Event.current.mousePosition - pos);
-
-                            // check if this control point is closer to the cursor that any previously considered point.
-                            if (sqrDistance < sqrMinSelectionDistance && sqrDistance < minSqrDistance)
-                            { //magic number 900 = 30*30, where 30 is min distance in pixels to select a particle.
-                                minSqrDistance = sqrDistance;
-                            }
-
-                        }
-
-                        HandleUtility.AddControl(controlID, Mathf.Sqrt(minSqrDistance));
-                    }
                     break;
 
             }

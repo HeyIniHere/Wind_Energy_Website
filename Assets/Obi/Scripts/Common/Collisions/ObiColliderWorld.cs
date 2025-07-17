@@ -44,6 +44,10 @@ namespace Obi
     {
         public ObiColliderHandle(int index = -1) : base(index) { }
     }
+    public class ObiForceZoneHandle : ObiResourceHandle<ObiForceZone>
+    {
+        public ObiForceZoneHandle(int index = -1) : base(index) { }
+    }
     public class ObiCollisionMaterialHandle : ObiResourceHandle<ObiCollisionMaterial>
     {
         public ObiCollisionMaterialHandle(int index = -1) : base(index) { }
@@ -53,7 +57,6 @@ namespace Obi
         public ObiRigidbodyHandle(int index = -1) : base(index) { }
     }
 
-    [ExecuteInEditMode]
     public class ObiColliderWorld
     {
         [NonSerialized] public List<IColliderWorldImpl> implementations;
@@ -63,7 +66,10 @@ namespace Obi
         [NonSerialized] public ObiNativeAabbList colliderAabbs;                   // list of collider bounds.
         [NonSerialized] public ObiNativeAffineTransformList colliderTransforms;   // list of collider transforms.
 
-        [NonSerialized] public List<ObiCollisionMaterialHandle> materialHandles;
+        [NonSerialized] public List<ObiForceZoneHandle> forceZoneHandles;         // list of collider handles, used by ObiForceZone components to retrieve them.
+        [NonSerialized] public ObiNativeForceZoneList forceZones;                 // list of collider force zones.
+
+        [NonSerialized] public List<ObiCollisionMaterialHandle> materialHandles;  // list of material handles, used by ObiCollisionMaterial components to retrieve them.
         [NonSerialized] public ObiNativeCollisionMaterialList collisionMaterials; // list of collision materials.
 
         [NonSerialized] public List<ObiRigidbodyHandle> rigidbodyHandles;         // list of rigidbody handles, used by ObiRigidbody components to retrieve them.
@@ -73,6 +79,19 @@ namespace Obi
         [NonSerialized] public ObiEdgeMeshContainer edgeMeshContainer;
         [NonSerialized] public ObiDistanceFieldContainer distanceFieldContainer;
         [NonSerialized] public ObiHeightFieldContainer heightFieldContainer;
+
+        private List<ObiColliderHandle> collidersToCreate;
+        private List<ObiColliderHandle> collidersToDestroy;
+
+        private List<ObiForceZoneHandle> forceZonesToCreate;
+        private List<ObiForceZoneHandle> forceZonesToDestroy;
+
+        private List<ObiRigidbodyHandle> rigidbodiesToCreate;
+        private List<ObiRigidbodyHandle> rigidbodiesToDestroy;
+
+        public int collidersToUpdateCount { private set; get; } = 0;    // amount of colliders that need to be updated. These are always grouped at the start of the collider arrays (handles, shapes, etc).
+
+        private bool dirty = false;
 
         private static ObiColliderWorld instance;
 
@@ -101,6 +120,11 @@ namespace Obi
             if (colliderTransforms == null)
                 colliderTransforms = new ObiNativeAffineTransformList();
 
+            if (forceZoneHandles == null)
+                forceZoneHandles = new List<ObiForceZoneHandle>();
+            if (forceZones == null)
+                forceZones = new ObiNativeForceZoneList();
+
             if (materialHandles == null)
                 materialHandles = new List<ObiCollisionMaterialHandle>();
             if (collisionMaterials == null)
@@ -119,13 +143,29 @@ namespace Obi
                 distanceFieldContainer = new ObiDistanceFieldContainer();
             if (heightFieldContainer == null)
                 heightFieldContainer = new ObiHeightFieldContainer();
+
+            if (collidersToCreate == null)
+                collidersToCreate = new List<ObiColliderHandle>();
+            if (collidersToDestroy == null)
+                collidersToDestroy = new List<ObiColliderHandle>();
+
+            if (forceZonesToCreate == null)
+                forceZonesToCreate = new List<ObiForceZoneHandle>();
+            if (forceZonesToDestroy == null)
+                forceZonesToDestroy = new List<ObiForceZoneHandle>();
+
+            if (rigidbodiesToCreate == null)
+                rigidbodiesToCreate = new List<ObiRigidbodyHandle>();
+            if (rigidbodiesToDestroy == null)
+                rigidbodiesToDestroy = new List<ObiRigidbodyHandle>();
         }
 
         private void Destroy()
         {
+            dirty = false;
             for (int i = 0; i < implementations.Count; ++i)
             {
-                implementations[i].SetColliders(colliderShapes, colliderAabbs, colliderTransforms, 0);
+                implementations[i].SetColliders(colliderShapes, colliderAabbs, colliderTransforms);
                 implementations[i].UpdateWorld(0);
             }
 
@@ -142,41 +182,48 @@ namespace Obi
                 foreach (var handle in materialHandles)
                     handle.Invalidate();
 
+            if (forceZoneHandles != null)
+                foreach (var handle in forceZoneHandles)
+                    handle.Invalidate();
+
             // Dispose of all lists:
             implementations = null;
             colliderHandles = null;
             rigidbodyHandles = null;
             materialHandles = null;
+            forceZoneHandles = null;
 
-            if (colliderShapes != null)
-                colliderShapes.Dispose();
-            if (colliderAabbs != null)
-                colliderAabbs.Dispose();
-            if (colliderTransforms != null)
-                colliderTransforms.Dispose();
+            collidersToCreate = null;
+            collidersToDestroy = null;
+            forceZonesToCreate = null;
+            forceZonesToDestroy = null;
+            rigidbodiesToCreate = null;
+            rigidbodiesToDestroy = null;
 
-            if (collisionMaterials != null)
-                collisionMaterials.Dispose();
+            colliderShapes?.Dispose();
+            colliderAabbs?.Dispose();
+            colliderTransforms?.Dispose();
+            forceZones?.Dispose();
+            collisionMaterials?.Dispose();
+            rigidbodies?.Dispose();
 
-            if (rigidbodies != null)
-                rigidbodies.Dispose();
-
-            if (triangleMeshContainer != null)
-                triangleMeshContainer.Dispose();
-            if (edgeMeshContainer != null)
-                edgeMeshContainer.Dispose();
-            if (distanceFieldContainer != null)
-                distanceFieldContainer.Dispose();
-            if (heightFieldContainer != null)
-                heightFieldContainer.Dispose();
+            triangleMeshContainer?.Dispose();
+            edgeMeshContainer?.Dispose();
+            distanceFieldContainer?.Dispose();
+            heightFieldContainer?.Dispose();
 
             instance = null;
         }
 
         private void DestroyIfUnused()
         {
-            // when there are no implementations and no colliders, the world gets destroyed.
-            if (colliderHandles.Count == 0 && rigidbodyHandles.Count == 0 && materialHandles.Count == 0 && implementations.Count == 0)
+            // when there is no data and no implementations, the world gets destroyed.
+            // don't check materialHandles.Count == 0, as these are scriptable objects and may outlive the world.
+            if (colliderHandles.Count == 0 &&
+                rigidbodyHandles.Count == 0 &&
+                forceZoneHandles.Count == 0 &&
+                implementations.Count == 0)
+
                 Destroy();
         }
 
@@ -194,22 +241,39 @@ namespace Obi
 
         public ObiColliderHandle CreateCollider()
         {
-            var handle = new ObiColliderHandle(colliderHandles.Count);
-            colliderHandles.Add(handle);
+            var handle = new ObiColliderHandle();
 
-            colliderShapes.Add(new ColliderShape() { materialIndex = -1, rigidbodyIndex = -1});
-            colliderAabbs.Add(new Aabb());
-            colliderTransforms.Add(new AffineTransform());
+            // in-editor, we create data right away since the simulation is not running.
+            if (!Application.isPlaying)
+                CreateColliderData(handle);
+            else
+                collidersToCreate.Add(handle);
+
+            return handle;
+        }
+
+        public ObiForceZoneHandle CreateForceZone()
+        {
+            var handle = new ObiForceZoneHandle();
+
+            // in-editor, we create data right away since the simulation is not running.
+            if (!Application.isPlaying)
+                CreateForceZoneData(handle);
+            else
+                forceZonesToCreate.Add(handle);
 
             return handle;
         }
 
         public ObiRigidbodyHandle CreateRigidbody()
         {
-            var handle = new ObiRigidbodyHandle(rigidbodyHandles.Count);
-            rigidbodyHandles.Add(handle);
+            var handle = new ObiRigidbodyHandle();
 
-            rigidbodies.Add(new ColliderRigidbody());
+            // in-editor, we create data right away since the simulation is not running.
+            if (!Application.isPlaying)
+                CreateRigidbodyData(handle);
+            else
+                rigidbodiesToCreate.Add(handle);
 
             return handle;
         }
@@ -266,64 +330,41 @@ namespace Obi
 
         public void DestroyCollider(ObiColliderHandle handle)
         {
-            if (colliderShapes != null && handle != null && handle.isValid && handle.index < colliderHandles.Count)
+            // Destroy data right away if no simulation is running.
+            if (!Application.isPlaying || implementations.Count == 0)
+                DestroyColliderData(handle);
+            else
             {
-                int index = handle.index;
-                int lastIndex = colliderHandles.Count - 1;
-
-                // swap all collider info:
-                colliderHandles.Swap(index, lastIndex);
-                colliderShapes.Swap(index, lastIndex);
-                colliderAabbs.Swap(index, lastIndex);
-                colliderTransforms.Swap(index, lastIndex);
-
-                // update the index of the handle we swapped with:
-                colliderHandles[index].index = index;
-
-                // invalidate our handle:
-                // (after updating the swapped one!
-                // in case there's just one handle in the array,
-                // we need to write -1 after 0)
-                handle.Invalidate();
-
-                // remove last index:
-                colliderHandles.RemoveAt(lastIndex);
-                colliderShapes.count--;
-                colliderAabbs.count--;
-                colliderTransforms.count--;
-
-                DestroyIfUnused();
+                // In case the handle is in the creation queue, just remove it.
+                if (!collidersToCreate.Remove(handle))
+                    collidersToDestroy.Add(handle);
             }
+        }
 
+        public void DestroyForceZone(ObiForceZoneHandle handle)
+        {
+            // Destroy data right away if no simulation is running.
+            if (!Application.isPlaying || implementations.Count == 0)
+                DestroyForceZoneData(handle);
+            else
+            {
+                // In case the handle is in the creation queue, just remove it.
+                if (!forceZonesToCreate.Remove(handle))
+                    forceZonesToDestroy.Add(handle);
+            }
         }
 
         public void DestroyRigidbody(ObiRigidbodyHandle handle)
         {
-            if (rigidbodies != null && handle != null && handle.isValid && handle.index < rigidbodyHandles.Count)
+            // Destroy data right away if no simulation is running.
+            if (!Application.isPlaying || implementations.Count == 0)
+                DestroyRigidbodyData(handle);
+            else
             {
-                int index = handle.index;
-                int lastIndex = rigidbodyHandles.Count - 1;
-
-                // swap all collider info:
-                rigidbodyHandles.Swap(index, lastIndex);
-                rigidbodies.Swap(index, lastIndex);
-
-                // update the index of the handle we swapped with:
-                rigidbodyHandles[index].index = index;
-
-                // invalidate our handle:
-                // (after updating the swapped one!
-                // in case there's just one handle in the array,
-                // we need to write -1 after 0)
-                handle.Invalidate();
-
-                // remove last index:
-                rigidbodyHandles.RemoveAt(lastIndex);
-                rigidbodies.count--;
-
-                DestroyIfUnused();
+                // In case the handle is in the creation queue, just remove it.
+                if (!rigidbodiesToCreate.Remove(handle))
+                    rigidbodiesToDestroy.Add(handle);
             }
-
         }
 
         public void DestroyCollisionMaterial(ObiCollisionMaterialHandle handle)
@@ -354,80 +395,309 @@ namespace Obi
             }
         }
 
-        public void UpdateColliders()
+        private void DestroyColliderData (ObiColliderHandle handle)
         {
+            if (colliderShapes != null && handle != null && handle.isValid && handle.index < colliderHandles.Count)
+            {
+                int index = handle.index;
+                int lastIndex = colliderHandles.Count - 1;
+
+                // swap all collider info:
+                colliderHandles.Swap(index, lastIndex);
+                colliderShapes.Swap(index, lastIndex);
+                colliderAabbs.Swap(index, lastIndex);
+                colliderTransforms.Swap(index, lastIndex);
+
+                // update the index of the handle we swapped with:
+                colliderHandles[index].index = index;
+
+                // invalidate our handle:
+                // (after updating the swapped one!
+                // in case there's just one handle in the array,
+                // we need to write -1 after 0)
+                handle.Invalidate();
+
+                // remove last index:
+                colliderHandles.RemoveAt(lastIndex);
+                colliderShapes.count--;
+                colliderAabbs.count--;
+                colliderTransforms.count--;
+
+                // force all colliders to update next frame, as the index of the data they reference
+                // (eg the mesh in a MeshCollider) may have changed as a result of deleting this collider's data.
+                collidersToUpdateCount = colliderHandles.Count;
+
+                DestroyIfUnused();
+            }
+        }
+
+        private void DestroyForceZoneData(ObiForceZoneHandle handle)
+        {
+            if (forceZones != null && handle != null && handle.isValid && handle.index < forceZoneHandles.Count)
+            {
+                int index = handle.index;
+                int lastIndex = forceZoneHandles.Count - 1;
+
+                // swap all force zone info:
+                forceZoneHandles.Swap(index, lastIndex);
+                forceZones.Swap(index, lastIndex);
+
+                // update the index of the handle we swapped with:
+                forceZoneHandles[index].index = index;
+
+                // invalidate our handle:
+                // (after updating the swapped one!
+                // in case there's just one handle in the array,
+                // we need to write -1 after 0)
+                handle.Invalidate();
+
+                // remove last index:
+                forceZoneHandles.RemoveAt(lastIndex);
+                forceZones.count--;
+
+                DestroyIfUnused();
+            }
+        }
+
+        private void DestroyRigidbodyData(ObiRigidbodyHandle handle)
+        {
+            if (rigidbodies != null && handle != null && handle.isValid && handle.index < rigidbodyHandles.Count)
+            {
+                int index = handle.index;
+                int lastIndex = rigidbodyHandles.Count - 1;
+
+                // swap all collider info:
+                rigidbodyHandles.Swap(index, lastIndex);
+                rigidbodies.Swap(index, lastIndex);
+
+                // update the index of the handle we swapped with:
+                rigidbodyHandles[index].index = index;
+
+                // invalidate our handle:
+                // (after updating the swapped one!
+                // in case there's just one handle in the array,
+                // we need to write -1 after 0)
+                handle.Invalidate();
+
+                // remove last index:
+                rigidbodyHandles.RemoveAt(lastIndex);
+                rigidbodies.count--;
+
+                DestroyIfUnused();
+            }
+
+        }
+
+        private void CreateColliderData(ObiColliderHandle handle)
+        {
+            handle.index = colliderHandles.Count;
+            colliderHandles.Add(handle);
+            colliderShapes.Add(new ColliderShape { materialIndex = -1, rigidbodyIndex = -1, dataIndex = -1 });
+            colliderAabbs.Add(new Aabb());
+            colliderTransforms.Add(new AffineTransform());
+
+            MarkColliderAsNeedingUpdate(handle);
+        }
+
+        private void CreateForceZoneData(ObiForceZoneHandle handle)
+        {
+            handle.index = forceZoneHandles.Count;
+            forceZoneHandles.Add(handle);
+            forceZones.Add(new ForceZone());
+        }
+
+        private void CreateRigidbodyData(ObiRigidbodyHandle handle)
+        {
+            handle.index = rigidbodyHandles.Count;
+            rigidbodyHandles.Add(handle);
+            rigidbodies.Add(new ColliderRigidbody());
+        }
+
+        public bool DoesColliderRequireToBeUpdated(ObiColliderHandle handle)
+        {
+            if (handle != null && handle.isValid &&
+                handle.index < colliderHandles.Count && handle.index < collidersToUpdateCount)
+                return true;
+            return false;
+        }
+
+        public void MarkColliderAsNeedingUpdate(ObiColliderHandle handle)
+        {
+            if (colliderShapes != null && handle != null && handle.isValid &&
+                handle.index < colliderHandles.Count && handle.index >= collidersToUpdateCount &&
+                collidersToUpdateCount < colliderHandles.Count)
+            {
+                int index = handle.index;
+                int lastIndex = collidersToUpdateCount;
+
+                // swap all collider info:
+                colliderHandles.Swap(index, lastIndex);
+                colliderShapes.Swap(index, lastIndex);
+                colliderAabbs.Swap(index, lastIndex);
+                colliderTransforms.Swap(index, lastIndex);
+
+                // update handles:
+                colliderHandles[lastIndex].index = lastIndex;
+                colliderHandles[index].index = index;
+
+                collidersToUpdateCount++;
+            }
+        }
+
+        public void MarkColliderAsNotNeedingUpdate(ObiColliderHandle handle)
+        {
+            if (colliderShapes != null && handle != null && handle.isValid &&
+                handle.index < colliderHandles.Count && handle.index < collidersToUpdateCount)
+            {
+                int index = handle.index;
+                int lastIndex = collidersToUpdateCount-1;
+
+                // swap all collider info:
+                colliderHandles.Swap(index, lastIndex);
+                colliderShapes.Swap(index, lastIndex);
+                colliderAabbs.Swap(index, lastIndex);
+                colliderTransforms.Swap(index, lastIndex);
+
+                // update handles:
+                colliderHandles[lastIndex].index = lastIndex;
+                colliderHandles[index].index = index;
+
+                collidersToUpdateCount--;
+            }
+        }
+
+        public void FlushHandleBuffers()
+        {
+            // First process destruction, then process creation.
+            // In case we create a handle and then destroy it,
+            // we should enqueue it for destruction only if it's not in the creation queue.
+            // If it is, just remove if from the creation queue.
+
+            if (collidersToDestroy != null)
+            {
+                foreach (var handle in collidersToDestroy)
+                    DestroyColliderData(handle);
+                collidersToDestroy?.Clear();
+            }
+
+            if (forceZonesToDestroy != null)
+            {
+                foreach (var handle in forceZonesToDestroy)
+                    DestroyForceZoneData(handle);
+                forceZonesToDestroy?.Clear();
+            }
+
+            if (rigidbodiesToDestroy != null)
+            {
+                foreach (var handle in rigidbodiesToDestroy)
+                    DestroyRigidbodyData(handle);
+                rigidbodiesToDestroy?.Clear();
+            }
+
+            if (collidersToCreate != null)
+            {
+                foreach (var handle in collidersToCreate)
+                    CreateColliderData(handle);
+                collidersToCreate?.Clear();
+            }
+
+            if (forceZonesToCreate != null)
+            {
+                foreach (var handle in forceZonesToCreate)
+                    CreateForceZoneData(handle);
+                forceZonesToCreate?.Clear();
+            }
+
+            if (rigidbodiesToCreate != null)
+            {
+                foreach (var handle in rigidbodiesToCreate)
+                    CreateRigidbodyData(handle);
+                rigidbodiesToCreate?.Clear();
+            }
+          
+        }
+
+        public void UpdateWorld(float deltaTime, bool updateDynamics = true)
+        {
+            if (!dirty)
+                return;
+
+            dirty = false;
+
+            // ensure all objects have valid handles.
+            // May destroy the world if it's empty,
+            // so we next check that handle/implementations are not null.
+            FlushHandleBuffers();
+
             // update all colliders:
-            for (int i = 0; i < colliderHandles.Count; ++i)
-                colliderHandles[i].owner.UpdateIfNeeded();
-        }
+            if (colliderHandles != null)
+                for (int i = 0; i < collidersToUpdateCount; ++i)
+                    colliderHandles[i].owner.UpdateIfNeeded();
 
-        public void UpdateRigidbodies(List<ObiSolver> solvers, float stepTime)
-        {
-            // reset all solver's delta buffers to zero:
-            foreach (ObiSolver solver in solvers)
-            {
-                if (solver != null && solver.initialized)
-                {
-                    solver.EnsureRigidbodyArraysCapacity(rigidbodyHandles.Count);
-                    solver.rigidbodyLinearDeltas.WipeToZero();
-                    solver.rigidbodyAngularDeltas.WipeToZero();
-                }
-            }
+            // update all force zones:
+            if (forceZoneHandles != null)
+                for (int i = 0; i < forceZoneHandles.Count; ++i)
+                    forceZoneHandles[i].owner.UpdateIfNeeded();
 
-            for (int i = 0; i < rigidbodyHandles.Count; ++i)
-                rigidbodyHandles[i].owner.UpdateIfNeeded(stepTime);
-        }
-
-        public void UpdateWorld(float deltaTime)
-        {
-            for (int i = 0; i < implementations.Count; ++i)
-            {
-                if (implementations[i].referenceCount > 0)
-                {
-                    // set arrays:
-                    implementations[i].SetColliders(colliderShapes, colliderAabbs, colliderTransforms, colliderShapes.count);
-                    implementations[i].SetRigidbodies(rigidbodies);
-                    implementations[i].SetCollisionMaterials(collisionMaterials);
-                    implementations[i].SetTriangleMeshData(triangleMeshContainer.headers, triangleMeshContainer.bihNodes, triangleMeshContainer.triangles, triangleMeshContainer.vertices);
-                    implementations[i].SetEdgeMeshData(edgeMeshContainer.headers, edgeMeshContainer.bihNodes, edgeMeshContainer.edges, edgeMeshContainer.vertices);
-                    implementations[i].SetDistanceFieldData(distanceFieldContainer.headers, distanceFieldContainer.dfNodes);
-                    implementations[i].SetHeightFieldData(heightFieldContainer.headers, heightFieldContainer.samples);
-
-                    // update world implementation:
-                    implementations[i].UpdateWorld(deltaTime);
-                }
-            }
-        }
-
-        public void UpdateRigidbodyVelocities(List<ObiSolver> solvers)
-        {
-            int count = 0;
-            foreach (ObiSolver solver in solvers)
-                if (solver != null && solver.initialized) count++;
-
-            if (count > 0)
-            {
-                // we want to average the deltas applied by all solvers, so calculate 1/solverCount.
-                float rcpCount = 1.0f / count;
-
+            // update rigidbodies:
+            if (rigidbodyHandles != null && updateDynamics)
                 for (int i = 0; i < rigidbodyHandles.Count; ++i)
+                    rigidbodyHandles[i].owner.UpdateIfNeeded(deltaTime);
+
+            // update implementations:
+            if (implementations != null)
+                for (int i = 0; i < implementations.Count; ++i)
                 {
-                    Vector4 linearDelta = Vector4.zero;
-                    Vector4 angularDelta = Vector4.zero;
-
-                    foreach (ObiSolver solver in solvers)
+                    if (implementations[i].referenceCount > 0)
                     {
-                        if (solver != null && solver.initialized)
-                        {
-                            linearDelta += solver.rigidbodyLinearDeltas[i] * rcpCount;
-                            angularDelta += solver.rigidbodyAngularDeltas[i] * rcpCount;
-                        }
-                    }
+                        // set arrays:
+                        implementations[i].SetColliders(colliderShapes, colliderAabbs, colliderTransforms);
+                        implementations[i].SetForceZones(forceZones);
+                        implementations[i].SetRigidbodies(rigidbodies);
+                        implementations[i].SetCollisionMaterials(collisionMaterials);
+                        implementations[i].SetTriangleMeshData(triangleMeshContainer.headers, triangleMeshContainer.bihNodes, triangleMeshContainer.triangles, triangleMeshContainer.vertices);
+                        implementations[i].SetEdgeMeshData(edgeMeshContainer.headers, edgeMeshContainer.bihNodes, edgeMeshContainer.edges, edgeMeshContainer.vertices);
+                        implementations[i].SetDistanceFieldData(distanceFieldContainer.headers, distanceFieldContainer.dfNodes);
+                        implementations[i].SetHeightFieldData(heightFieldContainer.headers, heightFieldContainer.samples);
 
-                    // update rigidbody velocities
-                    rigidbodyHandles[i].owner.UpdateVelocities(linearDelta, angularDelta);
+                        // update world implementation:
+                        if (updateDynamics)
+                            implementations[i].UpdateWorld(deltaTime);
+                    }
                 }
+        }
+
+        public void SetDirty()
+        {
+            dirty = true;
+        }
+
+        public void UpdateCollisionMaterials()
+        {
+            if (implementations != null)
+                for (int i = 0; i < implementations.Count; ++i)
+                {
+                    if (implementations[i].referenceCount > 0)
+                    {
+                        implementations[i].SetCollisionMaterials(collisionMaterials);
+                    }
+                }
+        }
+
+        public void UpdateRigidbodyVelocities(ObiSolver solver)
+        {
+            if (solver != null && solver.initialized)
+            {
+                int count = Mathf.Min(rigidbodyHandles.Count, solver.rigidbodyLinearDeltas.count);
+
+                for (int i = 0; i < count; ++i)
+                    rigidbodyHandles[i].owner.UpdateVelocities(solver.rigidbodyLinearDeltas[i], solver.rigidbodyAngularDeltas[i]);
             }
+
+            solver.rigidbodyLinearDeltas.WipeToZero();
+            solver.rigidbodyAngularDeltas.WipeToZero();
+            solver.rigidbodyLinearDeltas.Upload();
+            solver.rigidbodyAngularDeltas.Upload();
         }
 
     }

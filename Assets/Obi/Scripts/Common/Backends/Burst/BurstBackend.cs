@@ -10,7 +10,7 @@ namespace Obi
 {
     public class BurstBackend : IObiBackend
     {
-#region Solver
+        #region Solver
         public ISolverImpl CreateSolver(ObiSolver solver, int capacity)
         {
             return new BurstSolverImpl(solver);
@@ -20,8 +20,7 @@ namespace Obi
             if (solver != null)
                 solver.Destroy();
         }
-#endregion
-
+        #endregion
     }
 }
 #endif

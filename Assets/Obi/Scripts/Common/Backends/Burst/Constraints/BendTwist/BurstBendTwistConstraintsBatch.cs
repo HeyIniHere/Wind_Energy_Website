@@ -32,7 +32,7 @@ namespace Obi
             m_ConstraintCount = count;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var projectConstraints = new BendTwistConstraintsBatchJob()
             {
@@ -107,12 +107,11 @@ namespace Obi
                 quaternion omega_plus;
                 omega_plus.value = omega.value + rest.value;  //delta Omega with - omega_0
                 omega.value -= rest.value;                    //delta Omega with + omega_0
-
                 if (math.lengthsq(omega.value) > math.lengthsq(omega_plus.value))
                     omega = omega_plus;
 
                 // plasticity
-                if (math.lengthsq(omega.value) > plasticity[i].x * plasticity[i].x)
+                if (math.lengthsq(omega.value.xyz) > plasticity[i].x * plasticity[i].x)
                 {
                     rest.value += omega.value * plasticity[i].y * deltaTime;
                     restDarboux[i] = rest;

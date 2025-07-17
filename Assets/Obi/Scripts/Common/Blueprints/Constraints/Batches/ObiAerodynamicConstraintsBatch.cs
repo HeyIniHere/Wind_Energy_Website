@@ -76,8 +76,8 @@ namespace Obi
                 {
                     particleIndices[m_ActiveConstraintCount + i] = actor.solverIndices[batch.particleIndices[i]];
                     aerodynamicCoeffs[(m_ActiveConstraintCount + i) * 3] = batch.aerodynamicCoeffs[i*3];
-                    aerodynamicCoeffs[(m_ActiveConstraintCount + i) * 3 + 1] = user.drag;
-                    aerodynamicCoeffs[(m_ActiveConstraintCount + i) * 3 + 2] = user.lift;
+                    aerodynamicCoeffs[(m_ActiveConstraintCount + i) * 3 + 1] = user.GetDrag(batch, i);
+                    aerodynamicCoeffs[(m_ActiveConstraintCount + i) * 3 + 2] = user.GetLift(batch, i);
                 }
 
                 base.Merge(actor, other);
@@ -96,6 +96,10 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            aerodynamicCoeffs.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

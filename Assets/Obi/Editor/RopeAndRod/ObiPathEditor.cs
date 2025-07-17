@@ -2,12 +2,38 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.EditorTools;
 using System;
+using UnityEditor.Overlays;
+using UnityEngine.UIElements;
 
 namespace Obi
 {
     [EditorTool("Obi Path Editor Tool",typeof(ObiRopeBase))]
     public class ObiPathEditor : EditorTool
     {
+
+        [Overlay(typeof(SceneView), "Obi Path Editor", "Obi Path Editor", "Obi Path Editor", true)]
+        [Icon("Assets/Obi/Editor/Resources/EditCurves.psd")]
+        class PathEditorOverlay : Overlay, ITransientOverlay
+        {
+            public static ObiPathEditor editor;
+
+            public override VisualElement CreatePanelContent()
+            {
+                var root = new VisualElement();
+                root.Add(new IMGUIContainer(editor.DrawToolPanel));
+                return root;
+            }
+
+            // Use the visible property to hide or show this instance from within the class.
+            public bool visible
+            {
+                get
+                {
+                    return ToolManager.activeToolType == typeof(ObiPathEditor);
+                }
+            }
+        }
+
         enum PathEditorTool
         {
             TranslatePoints,
@@ -64,6 +90,7 @@ namespace Obi
         {
             this.useOrientation = target is ObiRod;
             selectedStatus = new bool[0];
+            PathEditorOverlay.editor = this;
         }
 
         public void ResizeCPArrays()
@@ -71,7 +98,6 @@ namespace Obi
             Array.Resize(ref selectedStatus, path.ControlPointCount);
         }
 
-        int windowId;
         public override void OnToolGUI(EditorWindow window)
         {
             needsRepaint = false;
@@ -82,11 +108,7 @@ namespace Obi
 
             ResizeCPArrays();
 
-            HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
-
-            // get a window ID:
-            if (Event.current.type != EventType.Used)
-                windowId = GUIUtility.GetControlID(FocusType.Passive);
+            HandleUtility.AddDefaultControl(GUIUtility.GetControlID("PathEditor".GetHashCode(), FocusType.Passive));
 
             Matrix4x4 prevMatrix = Handles.matrix;
             Handles.matrix = matrix;
@@ -98,9 +120,6 @@ namespace Obi
                 needsRepaint |= DrawControlPoint(i);
             }
 
-            // Control point selection handle:
-            needsRepaint |= ObiPathHandles.SplineCPSelector(path, selectedStatus);
-
             // Count selected and calculate average position:
             selectionAverage = GetControlPointAverage(out lastSelected, out selectedCount);
 
@@ -110,10 +129,8 @@ namespace Obi
             if (showThicknessHandles)
                 needsRepaint |= DoThicknessHandles(thicknessScale);
 
-            // Sceneview GUI:
-            Handles.BeginGUI();
-            GUILayout.Window(windowId, new Rect(10, 28, 0, 0), DrawUIWindow, "Path editor");
-            Handles.EndGUI();
+            // Control point selection handle:
+            needsRepaint |= ObiPathHandles.SplineCPSelector(path, selectedStatus);
 
             Handles.matrix = prevMatrix;
 
@@ -545,7 +562,7 @@ namespace Obi
             return false;
         }
 
-        public void DrawUIWindow(int windowID)
+        public void DrawToolPanel()
         {
 
             DrawToolButtons();
@@ -1056,7 +1073,7 @@ namespace Obi
             }
 
             EditorGUI.BeginChangeCheck();
-            color = EditorGUILayout.ColorField("Color", color, GUILayout.MinWidth(94));
+            color = EditorGUILayout.ColorField(new GUIContent("Color"), color, true, true, true, GUILayout.MinWidth(94));
             EditorGUI.showMixedValue = false;
             if (EditorGUI.EndChangeCheck())
             {
@@ -1153,7 +1170,7 @@ namespace Obi
 
             for (int index = 0; index < 4; ++index)
             {
-                int controlId = GUIUtility.GetControlID("ObiPathThicknessHandle".GetHashCode(), FocusType.Keyboard);
+                int controlId = GUIUtility.GetControlID("ObiPathThicknessHandle".GetHashCode(), FocusType.Passive);
                 Vector3 position1 = position + radius * vector3Array[index];
                 bool changed = GUI.changed;
                 GUI.changed = false;
@@ -1197,7 +1214,7 @@ namespace Obi
                         Vector2 currentPoint = HandleUtility.WorldToGUIPoint(path.m_Points.Evaluate(_p, p, p_, p__, i * step));
 
                         float mu;
-                        float distance = Vector2.SqrMagnitude((Vector2)ObiUtils.ProjectPointLine(screenPoint, lastPoint, currentPoint, out mu) - screenPoint);
+                        float distance = Vector2.SqrMagnitude((Vector2)ObiUtils.ProjectPointLine(lastPoint, currentPoint, screenPoint, out mu) - screenPoint);
 
                         if (distance < minDistance)
                         {

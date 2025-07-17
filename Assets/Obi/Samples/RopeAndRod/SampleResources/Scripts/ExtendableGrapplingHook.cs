@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Obi;
+
 
 /**
  * Sample component that shows how to use Obi Rope to create a grappling hook for a 2.5D game.
@@ -15,198 +15,212 @@ using Obi;
  * If complex interaction is required with the scene, a purely geometry-based approach (ala Worms ninja rope) can
  * be the right choice under certain circumstances.
  */
-public class ExtendableGrapplingHook : MonoBehaviour
+
+namespace Obi.Samples
 {
-
-    public ObiSolver solver;
-    public ObiCollider character;
-
-    public Material material;
-    public ObiRopeSection section;
-
-    [Range(0, 1)]
-    public float hookResolution = 0.5f;
-    public float hookExtendRetractSpeed = 2;
-    public float hookShootSpeed = 30;
-    public int particlePoolSize = 100;
-
-    private ObiRope rope;
-    private ObiRopeBlueprint blueprint;
-    private ObiRopeExtrudedRenderer ropeRenderer;
-
-    private ObiRopeCursor cursor;
-
-    private RaycastHit hookAttachment;
-
-    void Awake()
+    public class ExtendableGrapplingHook : MonoBehaviour
     {
 
-        // Create both the rope and the solver:	
-        rope = gameObject.AddComponent<ObiRope>();
-        ropeRenderer = gameObject.AddComponent<ObiRopeExtrudedRenderer>();
-        ropeRenderer.section = section;
-        ropeRenderer.uvScale = new Vector2(1, 4);
-        ropeRenderer.normalizeV = false;
-        ropeRenderer.uvAnchor = 1;
-        rope.GetComponent<MeshRenderer>().material = material;
+        public ObiSolver solver;
+        public ObiCollider character;
 
-        // Setup a blueprint for the rope:
-        blueprint = ScriptableObject.CreateInstance<ObiRopeBlueprint>();
-        blueprint.resolution = 0.5f;
-        blueprint.pooledParticles = particlePoolSize;
+        public Material material;
+        public ObiRopeSection section;
 
-        // Tweak rope parameters:
-        rope.maxBending = 0.02f;
+        [Range(0, 1)]
+        public float hookResolution = 0.5f;
+        public float hookExtendRetractSpeed = 2;
+        public float hookShootSpeed = 30;
+        public int particlePoolSize = 100;
 
-        // Add a cursor to be able to change rope length:
-        cursor = rope.gameObject.AddComponent<ObiRopeCursor>();
-        cursor.cursorMu = 0;
-        cursor.direction = true;
-    }
+        private ObiRope rope;
+        private ObiRopeBlueprint blueprint;
+        private ObiRopeExtrudedRenderer ropeRenderer;
 
-    private void OnDestroy()
-    {
-        DestroyImmediate(blueprint);
-    }
+        private ObiRopeCursor cursor;
 
-    /**
-	 * Raycast against the scene to see if we can attach the hook to something.
-	 */
-    private void LaunchHook()
-    {
+        private RaycastHit hookAttachment;
 
-        // Get the mouse position in the scene, in the same XY plane as this object:
-        Vector3 mouse = Input.mousePosition;
-        mouse.z = transform.position.z - Camera.main.transform.position.z;
-        Vector3 mouseInScene = Camera.main.ScreenToWorldPoint(mouse);
-
-        // Get a ray from the character to the mouse:
-        Ray ray = new Ray(transform.position, mouseInScene - transform.position);
-
-        // Raycast to see what we hit:
-        if (Physics.Raycast(ray, out hookAttachment))
+        void Awake()
         {
-            // We actually hit something, so attach the hook!
-            StartCoroutine(AttachHook());
+
+            // Create both the rope and the solver:	
+            rope = gameObject.AddComponent<ObiRope>();
+            ropeRenderer = gameObject.AddComponent<ObiRopeExtrudedRenderer>();
+            ropeRenderer.section = section;
+            ropeRenderer.uvScale = new Vector2(1, 4);
+            ropeRenderer.normalizeV = false;
+            ropeRenderer.uvAnchor = 1;
+            ropeRenderer.material = material;
+
+            // Setup a blueprint for the rope:
+            blueprint = ScriptableObject.CreateInstance<ObiRopeBlueprint>();
+            blueprint.resolution = 0.5f;
+            blueprint.pooledParticles = particlePoolSize;
+
+            // Tweak rope parameters:
+            rope.maxBending = 0.02f;
+
+            // Add a cursor to be able to change rope length:
+            cursor = rope.gameObject.AddComponent<ObiRopeCursor>();
+            cursor.cursorMu = 0;
+            cursor.direction = true;
         }
 
-    }
-
-    private IEnumerator AttachHook()
-    {
-        yield return null;
-
-        // Clear pin constraints:
-        var pinConstraints = rope.GetConstraintsByType(Oni.ConstraintType.Pin) as ObiConstraints<ObiPinConstraintsBatch>;
-        pinConstraints.Clear();
-
-        Vector3 localHit = rope.transform.InverseTransformPoint(hookAttachment.point);
-
-        // Procedurally generate the rope path (just a short segment, as we will extend it over time):
-        int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
-        blueprint.path.Clear();
-        blueprint.path.AddControlPoint(Vector3.zero, Vector3.zero, Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "Hook start");
-        blueprint.path.AddControlPoint(localHit.normalized * 0.5f, Vector3.zero, Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "Hook end");
-        blueprint.path.FlushEvents();
-
-        // Generate the particle representation of the rope (wait until it has finished):
-        yield return blueprint.Generate();
-        
-        // Set the blueprint (this adds particles/constraints to the solver and starts simulating them).
-        rope.ropeBlueprint = blueprint;
-
-        // wait one frame:
-        yield return null;
-
-        rope.GetComponent<MeshRenderer>().enabled = true;
-
-        // set masses to zero, as we're going to override positions while we extend the rope:
-        for (int i = 0; i < rope.activeParticleCount; ++i)
-            solver.invMasses[rope.solverIndices[i]] = 0;
-
-        float currentLength = 0;
-
-        // while the last particle hasn't reached the hit, extend the rope:
-        while (true)
+        private void OnDestroy()
         {
-            // calculate rope origin in solver space:
-            Vector3 origin = solver.transform.InverseTransformPoint(rope.transform.position);
+            DestroyImmediate(blueprint);
+        }
 
-            // update direction and distance to hook point:
-            Vector3 direction = hookAttachment.point - origin;
-            float distance = direction.magnitude;
-            direction.Normalize();
+        /**
+         * Raycast against the scene to see if we can attach the hook to something.
+         */
+        private void LaunchHook()
+        {
 
-            // increase length:
-            currentLength += hookShootSpeed * Time.deltaTime;
+            // Get the mouse position in the scene, in the same XY plane as this object:
+            Vector3 mouse = Input.mousePosition;
+            mouse.z = transform.position.z - Camera.main.transform.position.z;
+            Vector3 mouseInScene = Camera.main.ScreenToWorldPoint(mouse);
 
-            // if we have reached the desired length, break the loop:
-            if (currentLength >= distance)
+            // Get a ray from the character to the mouse:
+            Ray ray = new Ray(transform.position, mouseInScene - transform.position);
+
+            // Raycast to see what we hit:
+            if (Physics.Raycast(ray, out hookAttachment))
             {
-                cursor.ChangeLength(distance);
-                break;
+                // We actually hit something, so attach the hook!
+                StartCoroutine(AttachHook());
             }
 
-            // change rope length (clamp to distance between rope origin and hook to avoid overshoot)
-            cursor.ChangeLength(Mathf.Min(distance, currentLength));
+        }
 
-            // iterate over all particles in sequential order, placing them in a straight line while
-            // respecting element length:
+        private void LayParticlesInStraightLine(Vector3 origin, Vector3 direction)
+        {
+            // placing all particles in a straight line, respecting rope length
             float length = 0;
             for (int i = 0; i < rope.elements.Count; ++i)
             {
-                solver.positions[rope.elements[i].particle1] = origin + direction * length;
-                solver.positions[rope.elements[i].particle2] = origin + direction * (length + rope.elements[i].restLength);
+                int p1 = rope.elements[i].particle1;
+                int p2 = rope.elements[i].particle2;
+
+                solver.prevPositions[p1] = solver.positions[p1] = origin + direction * length;
                 length += rope.elements[i].restLength;
+                solver.prevPositions[p2] = solver.positions[p2] = origin + direction * length;
             }
+        }
 
-            // wait one frame:
+        private IEnumerator AttachHook()
+        {
             yield return null;
-        }
 
-        // restore masses so that the simulation takes over now that the rope is in place:
-        for (int i = 0; i < rope.activeParticleCount; ++i)
-            solver.invMasses[rope.solverIndices[i]] = 10; // 1/0.1 = 10
+            // Clear pin constraints:
+            var pinConstraints = rope.GetConstraintsByType(Oni.ConstraintType.Pin) as ObiConstraints<ObiPinConstraintsBatch>;
+            pinConstraints.Clear();
 
-        // Pin both ends of the rope (this enables two-way interaction between character and rope):
-        var batch = new ObiPinConstraintsBatch();
-        batch.AddConstraint(rope.elements[0].particle1, character, transform.localPosition, Quaternion.identity, 0, 0, float.PositiveInfinity);
-        batch.AddConstraint(rope.elements[rope.elements.Count-1].particle2, hookAttachment.collider.GetComponent<ObiColliderBase>(),
-                                                          hookAttachment.collider.transform.InverseTransformPoint(hookAttachment.point), Quaternion.identity, 0, 0, float.PositiveInfinity);
-        batch.activeConstraintCount = 2;
-        pinConstraints.AddBatch(batch);
+            Vector3 localHit = rope.transform.InverseTransformPoint(hookAttachment.point);
 
-        rope.SetConstraintsDirty(Oni.ConstraintType.Pin);
-    }
+            // Procedurally generate the rope path (just a short segment, as we will extend it over time):
+            int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
+            blueprint.path.Clear();
+            blueprint.path.AddControlPoint(Vector3.zero, Vector3.zero, Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "Hook start");
+            blueprint.path.AddControlPoint(localHit.normalized * 0.5f, Vector3.zero, Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "Hook end");
+            blueprint.path.FlushEvents();
 
-    private void DetachHook()
-    {
-        // Set the rope blueprint to null (automatically removes the previous blueprint from the solver, if any).
-        rope.ropeBlueprint = null;
-        rope.GetComponent<MeshRenderer>().enabled = false;
-    }
+            // Generate the particle representation of the rope (wait until it has finished):
+            yield return blueprint.Generate();
 
+            // Set the blueprint (this adds particles/constraints to the solver and starts simulating them).
+            rope.ropeBlueprint = blueprint;
+            rope.GetComponent<ObiRopeExtrudedRenderer>().enabled = true;
 
-    void Update()
-    {
+            // wait for the solver to load the rope, after the next physics step:
+            yield return new WaitForFixedUpdate();
+            yield return null;
 
-        if (Input.GetMouseButtonDown(0))
-        {
-            if (!rope.isLoaded)
-                LaunchHook();
-            else
-                DetachHook();
-        }
+            // set masses to zero, as we're going to override positions while we extend the rope:
+            for (int i = 0; i < rope.activeParticleCount; ++i)
+                solver.invMasses[rope.solverIndices[i]] = 0;
 
-        if (rope.isLoaded)
-        {
-            if (Input.GetKey(KeyCode.W))
+            // while the last particle hasn't reached the hit, extend the rope:
+            Vector3 origin;
+            Vector3 direction;
+
+            while (true)
             {
-                cursor.ChangeLength(rope.restLength - hookExtendRetractSpeed * Time.deltaTime);
+                // calculate rope origin in solver space:
+                origin = solver.transform.InverseTransformPoint(rope.transform.position);
+
+                // update direction and distance to hook point:
+                direction = solver.transform.InverseTransformPoint(hookAttachment.point) - origin;
+                float distance = direction.magnitude;
+                direction.Normalize();
+
+                LayParticlesInStraightLine(origin, direction);
+
+                // increase length:
+                float distanceLeft = distance - cursor.ChangeLength(hookShootSpeed * Time.deltaTime);
+
+                // if we have exceeded the desired length, correct it and break the loop:
+                if (distanceLeft < 0)
+                {
+                    cursor.ChangeLength(distanceLeft);
+                    break;
+                }
+
+                // wait for next frame:
+                yield return null;
             }
-            if (Input.GetKey(KeyCode.S))
+
+            // wait for the last length change to take effect, and ensure the rope is straight:
+            yield return new WaitForFixedUpdate();
+            yield return null;
+            LayParticlesInStraightLine(origin, direction);
+
+            // restore masses so that the simulation takes over now that the rope is in place:
+            for (int i = 0; i < rope.activeParticleCount; ++i)
+                solver.invMasses[rope.solverIndices[i]] = 10; // 1/0.1 = 10
+
+            // Pin both ends of the rope (this enables two-way interaction between character and rope):
+            var batch = new ObiPinConstraintsBatch();
+            batch.AddConstraint(rope.elements[0].particle1, character, transform.localPosition, Quaternion.identity, 0, 0);
+            batch.AddConstraint(rope.elements[rope.elements.Count - 1].particle2, hookAttachment.collider.GetComponent<ObiColliderBase>(),
+                                                              hookAttachment.collider.transform.InverseTransformPoint(hookAttachment.point), Quaternion.identity, 0, 0);
+            batch.activeConstraintCount = 2;
+            pinConstraints.AddBatch(batch);
+
+            rope.SetConstraintsDirty(Oni.ConstraintType.Pin);
+        }
+
+        private void DetachHook()
+        {
+            // Set the rope blueprint to null (automatically removes the previous blueprint from the solver, if any).
+            rope.ropeBlueprint = null;
+            rope.GetComponent<ObiRopeExtrudedRenderer>().enabled = false;
+        }
+
+
+        void Update()
+        {
+
+            if (Input.GetMouseButtonDown(0))
             {
-                cursor.ChangeLength(rope.restLength + hookExtendRetractSpeed * Time.deltaTime);
+                if (!rope.isLoaded)
+                    LaunchHook();
+                else
+                    DetachHook();
+            }
+
+            if (rope.isLoaded)
+            {
+                if (Input.GetKey(KeyCode.W))
+                {
+                    cursor.ChangeLength(-hookExtendRetractSpeed * Time.deltaTime);
+                }
+                if (Input.GetKey(KeyCode.S))
+                {
+                    cursor.ChangeLength(hookExtendRetractSpeed * Time.deltaTime);
+                }
             }
         }
     }

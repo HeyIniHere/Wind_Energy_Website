@@ -33,7 +33,7 @@ namespace Obi
             m_ConstraintCount = count;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var projectConstraints = new StretchShearConstraintsBatchJob()
             {
@@ -126,8 +126,8 @@ namespace Obi
                 // subtract third director vector (0,0,1):
                 gamma[2] -= 1;
 
-                float3 W = new float3((w1 + w2) / (restLengths[i] + BurstMath.epsilon) + invRotationalMasses[q] * 4.0f * restLengths[i] + BurstMath.epsilon);
-                float3 dlambda = (gamma - compliances * lambdas[i]) / (compliances + W);
+                float3 W = new float3((w1 + w2) / (restLengths[i] + BurstMath.epsilon) + invRotationalMasses[q] * 4.0f * restLengths[i]);
+                float3 dlambda = (gamma - compliances * lambdas[i]) / (W + compliances + BurstMath.epsilon);
                 lambdas[i] += dlambda;
 
                 // convert lambda delta lambda back to world space:
@@ -142,7 +142,10 @@ namespace Obi
                 // calculate rotation delta:
                 quaternion rotDelta = math.mul(new quaternion(dlambda[0], dlambda[1], dlambda[2], 0.0f),q_e_3_bar);
                 rotDelta.value *= 2.0f * invRotationalMasses[q] * restLengths[i];
-                orientationDeltas[q] = rotDelta;
+
+                quaternion orDelta = orientationDeltas[q];
+                orDelta.value += rotDelta.value;
+                orientationDeltas[q] = orDelta;
 
                 counts[p1]++;
                 counts[p2]++;

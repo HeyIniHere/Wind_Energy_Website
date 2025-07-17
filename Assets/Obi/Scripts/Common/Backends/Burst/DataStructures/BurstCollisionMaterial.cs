@@ -25,7 +25,7 @@ namespace Obi
 
             switch (frictionCombineMode)
             {
-                case Oni.MaterialCombineMode.Average:
+                default: // average
                     result.dynamicFriction = (a.dynamicFriction + b.dynamicFriction) * 0.5f;
                     result.staticFriction = (a.staticFriction + b.staticFriction) * 0.5f;
                     result.rollingFriction = (a.rollingFriction + b.rollingFriction) * 0.5f;
@@ -37,22 +37,22 @@ namespace Obi
                     result.rollingFriction = math.min(a.rollingFriction, b.rollingFriction);
                     break;
 
-                case Oni.MaterialCombineMode.Maximum:
-                    result.dynamicFriction = math.max(a.dynamicFriction, b.dynamicFriction);
-                    result.staticFriction = math.max(a.staticFriction, b.staticFriction);
-                    result.rollingFriction = math.max(a.rollingFriction, b.rollingFriction);
-                    break;
-
                 case Oni.MaterialCombineMode.Multiply:
                     result.dynamicFriction = a.dynamicFriction * b.dynamicFriction;
                     result.staticFriction = a.staticFriction * b.staticFriction;
                     result.rollingFriction = a.rollingFriction * b.rollingFriction;
                     break;
+
+                case Oni.MaterialCombineMode.Maximum:
+                    result.dynamicFriction = math.max(a.dynamicFriction, b.dynamicFriction);
+                    result.staticFriction = math.max(a.staticFriction, b.staticFriction);
+                    result.rollingFriction = math.max(a.rollingFriction, b.rollingFriction);
+                    break;
             }
 
             switch (stickCombineMode)
             {
-                case Oni.MaterialCombineMode.Average:
+                default: // average
                     result.stickiness = (a.stickiness + b.stickiness) * 0.5f;
                     break;
 
@@ -60,12 +60,12 @@ namespace Obi
                     result.stickiness = math.min(a.stickiness, b.stickiness);
                     break;
 
-                case Oni.MaterialCombineMode.Maximum:
-                    result.stickiness = math.max(a.stickiness, b.stickiness);
-                    break;
-
                 case Oni.MaterialCombineMode.Multiply:
                     result.stickiness = a.stickiness * b.stickiness;
+                    break;
+
+                case Oni.MaterialCombineMode.Maximum:
+                    result.stickiness = math.max(a.stickiness, b.stickiness);
                     break;
             }
 

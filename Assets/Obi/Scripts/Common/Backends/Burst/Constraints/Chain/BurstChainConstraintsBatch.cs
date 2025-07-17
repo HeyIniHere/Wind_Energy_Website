@@ -30,7 +30,7 @@ namespace Obi
             m_ConstraintCount = count;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
 
             var projectConstraints = new ChainConstraintsBatchJob()
@@ -88,12 +88,14 @@ namespace Obi
             {
                 int numEdges = numIndices[c] - 1;
                 int first = firstIndex[c];
-                float minLength = restLengths[c].y;
+                float minLength = restLengths[c].x;
                 float maxLength = restLengths[c].y;
 
                 // (ni:constraint gradient, di:desired lenght)
                 NativeArray<float4> ni = new NativeArray<float4>(numEdges, Allocator.Temp);
-                NativeArray<float> di = new NativeArray<float>(numEdges, Allocator.Temp);
+
+                // calculate ai (subdiagonals), bi (diagonals) and ci (superdiagonals):
+                NativeArray<float3> diagonals = new NativeArray<float3>(numEdges, Allocator.Temp);
 
                 for (int i = 0; i < numEdges; ++i)
                 {
@@ -104,20 +106,10 @@ namespace Obi
                     float4 diff = p1 - p2;
 
                     float distance = math.length(diff);
-                    float correction = 0;
-
-                    if (distance >= maxLength)
-                        correction = distance - maxLength;
-                    else if (distance <= minLength)
-                        correction = distance - minLength;
-
-                    di[i] = correction;
                     ni[i] = new float4(diff/(distance + BurstMath.epsilon));
                 }
 
-                // calculate ai (subdiagonals), bi (diagonals) and ci (superdiagonals):
-                NativeArray<float3> diagonals = new NativeArray<float3>(numEdges, Allocator.Temp);
-
+                // calculate ai, bi and ci (superdiagonals):
                 for (int i = 0; i < numEdges; ++i)
                 {
                     int edge = first + i;
@@ -135,34 +127,47 @@ namespace Obi
                                     -w__i * math.dot(n_i_, n__i));// ci
                 }
 
-                NativeArray<float2> sweep = new NativeArray<float2>(numEdges, Allocator.Temp);
-
                 // solve step #1, forward sweep:
+                // reuse diagonals.xy to store sweep results ci_ and di_:
                 for (int i = 0; i < numEdges; ++i)
                 {
                     int edge = first + i;
+                    float4 p1 = positions[particleIndices[edge]];
+                    float4 p2 = positions[particleIndices[edge + 1]];
 
-                    float cip_ = (i > 0) ? sweep[i - 1].x : 0;
-                    float dip_ = (i > 0) ? sweep[i - 1].y : 0;
+                    float cip_ = (i > 0) ? diagonals[i - 1].x : 0;
+                    float dip_ = (i > 0) ? diagonals[i - 1].y : 0;
                     float den = diagonals[i].y - cip_ * diagonals[i].x;
 
-                    if (den != 0)
+                    float3 d = diagonals[i];
+                    if (math.abs(den) > BurstMath.epsilon)
                     {
-                        sweep[i] = new float2((diagonals[i].z / den),
-                                              (di[i] - dip_ * diagonals[i].x) / den);
+                        float distance = math.distance(p1, p2);
+                        float correction = 0;
+
+                        if (distance >= maxLength)
+                            correction = distance - maxLength;
+                        else if (distance <= minLength)
+                            correction = distance - minLength;
+
+                        d.xy = new float2(d.z / den,
+                                         (correction - dip_ * d.x) / den);
+
                     }
                     else
-                        sweep[i] = float2.zero;
+                        d.xy = float2.zero;
+
+                    diagonals[i] = d;
                 }
 
-                // solve step #2, backward sweep:
-                NativeArray<float> xi = new NativeArray<float>(numEdges, Allocator.Temp);
+                // solve step #2, backward sweep. reuse diagonals.z to store solution xi:
                 for (int i = numEdges - 1; i >= 0; --i)
                 {
-                    int edge = first + i;
+                    float xi_ = (i < numEdges - 1) ? diagonals[i + 1].z : 0;
 
-                    float xi_ = (i < numEdges - 1) ? xi[i + 1] : 0;
-                    xi[i] = sweep[i].y - sweep[i].x * xi_;
+                    float3 d = diagonals[i];
+                    d.z = d.y - d.x * xi_;
+                    diagonals[i] = d;
                 }
 
                 // calculate deltas:
@@ -173,11 +178,11 @@ namespace Obi
                     float4 ni__ = (i > 0) ? ni[i - 1] : float4.zero;
                     float4 n_i_ = (i < numIndices[c] - 1) ? ni[i] : float4.zero;
 
-                    float xi_ = (i > 0) ? xi[i - 1] : 0;
-                    float nxi = (i < numIndices[c] - 1) ? xi[i] : 0;
+                    float xi_ = (i > 0) ? diagonals[i - 1].z : 0;
+                    float nxi = (i < numIndices[c] - 1) ? diagonals[i].z : 0;
 
                     int p = particleIndices[index];
-                    deltas[p] -= invMasses[p] * (-ni__ * xi_ + n_i_ * nxi);
+                    deltas[p] += invMasses[p] * (ni__ * xi_ - n_i_ * nxi);
                     counts[p]++;
                 }
             }

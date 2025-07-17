@@ -36,6 +36,13 @@ namespace Obi
                                             1 / scale);
         }
 
+        public BurstAffineTransform Integrate(float4 linearVelocity, float4 angularVelocity, float dt)
+        {
+            return new BurstAffineTransform(BurstIntegration.IntegrateLinear(translation, linearVelocity, dt),
+                                            BurstIntegration.IntegrateAngular(rotation, angularVelocity, dt),
+                                            scale);
+        }
+
         public BurstAffineTransform Interpolate(BurstAffineTransform other, float translationalMu, float rotationalMu, float scaleMu)
         {
             return new BurstAffineTransform(math.lerp(translation, other.translation, translationalMu),

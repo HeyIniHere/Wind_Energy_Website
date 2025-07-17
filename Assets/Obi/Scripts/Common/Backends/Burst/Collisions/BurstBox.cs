@@ -1,14 +1,15 @@
 ﻿#if (OBI_BURST && OBI_MATHEMATICS && OBI_COLLECTIONS)
+using Unity.Burst;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 
 namespace Obi
 {
-    public struct BurstBox : BurstLocalOptimization.IDistanceFunction, IBurstCollider
+    public struct BurstBox : BurstLocalOptimization.IDistanceFunction
     {
         public BurstColliderShape shape;
         public BurstAffineTransform colliderToSolver;
-        public float dt;
 
         public void Evaluate(float4 point, float4 radii, quaternion orientation, ref BurstLocalOptimization.SurfacePoint projectedPoint)
         {
@@ -18,7 +19,7 @@ namespace Obi
             // clamp the point to the surface of the box:
             point = colliderToSolver.InverseTransformPointUnscaled(point) - center;
 
-            if (shape.is2D != 0)
+            if (shape.is2D)
                 point[2] = 0;
 
             // get minimum distance for each axis:
@@ -55,39 +56,100 @@ namespace Obi
             projectedPoint.normal = colliderToSolver.TransformDirection(projectedPoint.normal);
         }
 
-        public void Contacts(int colliderIndex,
-                             int rigidbodyIndex,
-                             NativeArray<BurstRigidbody> rigidbodies,
-
-                              NativeArray<float4> positions,
-                              NativeArray<quaternion> orientations,
-                              NativeArray<float4> velocities,
-                              NativeArray<float4> radii,
-
-                              NativeArray<int> simplices,
-                              in BurstAabb simplexBounds,
-                              int simplexIndex,
-                              int simplexStart,
-                              int simplexSize,
-
-                              NativeQueue<BurstContact>.ParallelWriter contacts,
-                              int optimizationIterations,
-                              float optimizationTolerance)
+        public static JobHandle GenerateContacts(ObiColliderWorld world,
+                                                BurstSolverImpl solver,
+                                                NativeList<Oni.ContactPair> contactPairs,
+                                                NativeQueue<BurstContact> contactQueue,
+                                                NativeArray<int> contactOffsetsPerType,
+                                                float deltaTime,
+                                                JobHandle inputDeps)
         {
-            var co = new BurstContact() { bodyA = simplexIndex, bodyB = colliderIndex };
-            float4 simplexBary = BurstMath.BarycenterForSimplexOfSize(simplexSize);
+            int pairCount = contactOffsetsPerType[(int)Oni.ShapeType.Box + 1] - contactOffsetsPerType[(int)Oni.ShapeType.Box];
+            if (pairCount == 0) return inputDeps;
 
-            var colliderPoint = BurstLocalOptimization.Optimize<BurstBox>(ref this, positions, orientations, radii, simplices, simplexStart, simplexSize,
-                                                        ref simplexBary, out float4 convexPoint, optimizationIterations, optimizationTolerance);
+            var job = new GenerateBoxContactsJob
+            {
+                contactPairs = contactPairs,
 
-            co.pointB = colliderPoint.point;
-            co.normal = colliderPoint.normal;
-            co.pointA = simplexBary;
+                positions = solver.positions,
+                orientations = solver.orientations,
+                velocities = solver.velocities,
+                invMasses = solver.invMasses,
+                radii = solver.principalRadii,
 
-            contacts.Enqueue(co);
+                simplices = solver.simplices,
+                simplexCounts = solver.simplexCounts,
+
+                transforms = world.colliderTransforms.AsNativeArray<BurstAffineTransform>(),
+                shapes = world.colliderShapes.AsNativeArray<BurstColliderShape>(),
+
+                contactsQueue = contactQueue.AsParallelWriter(),
+
+                worldToSolver = solver.worldToSolver,
+                deltaTime = deltaTime,
+                parameters = solver.abstraction.parameters,
+                firstPair = contactOffsetsPerType[(int)Oni.ShapeType.Box]
+            };
+
+            inputDeps = job.Schedule(pairCount, 8, inputDeps);
+            return inputDeps;
         }
-
     }
 
+    [BurstCompile]
+    struct GenerateBoxContactsJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeList<Oni.ContactPair> contactPairs;
+
+        // particle arrays:
+        [ReadOnly] public NativeArray<float4> velocities;
+        [ReadOnly] public NativeArray<float4> positions;
+        [ReadOnly] public NativeArray<quaternion> orientations;
+        [ReadOnly] public NativeArray<float> invMasses;
+        [ReadOnly] public NativeArray<float4> radii;
+
+        // simplex arrays:
+        [ReadOnly] public NativeArray<int> simplices;
+        [ReadOnly] public SimplexCounts simplexCounts;
+
+        // collider arrays:
+        [ReadOnly] public NativeArray<BurstAffineTransform> transforms;
+        [ReadOnly] public NativeArray<BurstColliderShape> shapes;
+
+        [WriteOnly]
+        [NativeDisableParallelForRestriction]
+        public NativeQueue<BurstContact>.ParallelWriter contactsQueue;
+
+        // auxiliar data:
+        [ReadOnly] public int firstPair;
+        [ReadOnly] public BurstAffineTransform worldToSolver;
+        [ReadOnly] public float deltaTime;
+        [ReadOnly] public Oni.SolverParameters parameters;
+
+        public void Execute(int i)
+        {
+            int simplexIndex = contactPairs[firstPair + i].bodyA;
+            int colliderIndex = contactPairs[firstPair + i].bodyB;
+
+            int simplexStart = simplexCounts.GetSimplexStartAndSize(simplexIndex, out int simplexSize);
+
+            BurstAffineTransform colliderToSolver = worldToSolver * transforms[colliderIndex];
+
+            BurstBox shape = new BurstBox { colliderToSolver = colliderToSolver, shape = shapes[colliderIndex] };
+
+            float4 simplexBary = BurstMath.BarycenterForSimplexOfSize(simplexSize);
+            var colliderPoint = BurstLocalOptimization.Optimize(ref shape, positions, orientations, radii, simplices, simplexStart, simplexSize,
+                                                                ref simplexBary, out _, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
+
+            contactsQueue.Enqueue(new BurstContact
+            {
+                bodyA = simplexIndex,
+                bodyB = colliderIndex,
+                pointA = simplexBary,
+                pointB = colliderPoint.point,
+                normal = colliderPoint.normal * shape.shape.sign
+            });
+        }
+    }
 }
 #endif

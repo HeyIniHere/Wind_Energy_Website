@@ -68,7 +68,7 @@ namespace Obi{
 				EditorUtility.SetDirty(target);
 				CoroutineJob job = new CoroutineJob();
 				routine = job.Start( distanceField.Generate());
-				EditorCoroutine.ShowCoroutineProgressBar("Generating distance field",ref routine);
+				EditorCoroutine.ShowCoroutineProgressBar("Generating distance field", routine);
 				UpdatePreview();
 				EditorGUIUtility.ExitGUI();
 			}

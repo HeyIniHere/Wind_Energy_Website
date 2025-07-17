@@ -1,22 +1,77 @@
 # Change Log
 All notable changes to “Obi - Advanced ropes for Unity” will be documented in this file.
 
-## [6.5.4]
+## [7.1]
+
+### Added
+- ObiBone now exposes one particle group per bone in the hierarchy, allowing to easily use attachments.
+- New ObiBoneOverride component that allows to override curve-driven properties for a specific sub-hierarchy.
+- Solvers can now optionally enforce boundary limits, so that particles can't go outside those limits. This is often more convenient than manually placing invisible colliders for the same purpose.
+- Dynamic ObiParticleAttachments now have a "projection" boolean, when enabled it forces the rendered position/orientation of the attached particles to match that of the attachment location, even if the constraint doesn't fully converge. This is useful to avoid visual gaps under extreme conditions.
+- Actors now have a "mass scale" parameter, that multiplies the mass of all particles in the blueprinyt at the time of loading it into the solver. This is handy to create actors of different masses without the need to create a new blueprint.
+- ObiForceZones now have a "color" parameter, that can be used to change the color of particles entering the zone.
+
+### Changed
+- Improved performance for large amounts of static colliders: they're not processed at all during ObiSolver.Update().
 
 ### Fixed
-- Workaround for kinematic rigidbody velocities not writable in Unity 2022.1 and above.
+- Null reference exception when using a ObiRopeExtrudedRenderer that doesn't reference a section asset.
 
-## [6.5.3]
+## [7.0.5]
+
+### Added
+- New pinhole constraint type and ObiPinhole component, that allows to constrain ropes to a point in space while allowing it to slide trough it. Supports two-way rigidbody coupling and can be motor driven.
+
+### Fixed
+- Erratic bend/twist constraint behavior when darboux vector is close to identity.
+- Crash when attempting to bake ObiRopeExtrudedRenderer paired with an ObiPathSmoother that uses a non-zero decimation factor.
+- IndexOutOfRangeError when having ropes using multiple different section assets and disabling all rope instances using one of them.
+- InvalidOperationException in Burst backend when having simulateWhenInvisible = false and solver not seen by any camera.
+
+## [7.0.4]
+
+### Fixed
+- Bug that caused inactive particles to still be rendered by ObiInstancedParticleRenderer.
+- Bug that preventing pin constraints' break threshold from working when using the Compute backend. 
+
+## [7.0.3]
+
+### Added
+- Object layer support for all renderers.
+- New "Synchronous Fixed" solver synchronization mode, similar to Obi 6, offers tighter integration with rigidbody physics.
+- New "Tangled Ropes" sample scene.
+
+## [7.0.2]
+
+### Fixed
+- Solvers not placed at the scene origin would result in actors having incorrect motion blur in HDRP.
+- Fixed issue when disabling all solvers and colliders simultaneously: ipon re-enabling them, the colliders would be ignored.
+- Issue withe ElectricalSparks sample scene, ObiRopePrefabPlugger sample component may sometimes thorw an exception dependin on Unity's OnEnable call order.
+- Rope would sometimes disappear when using aerodynamic constraints with zero wind in Burst, due to a math.project returning NaN. Replaced with math.projectsafe.
+
+## [7.0.1]
+
+### Added
+- BakeMesh functionality to ObiRopeChainRenderer, you can now export baked chain meshes.
+- Render layer mask support to all rope renderers and particle renderers.
+
+### Fixed
+- Sceneview mouse lookaround in flytrough mode (right click + drag) didn't work in the path editor in Windows.
+- Having a ObiParticleRenderer with no material applied resulted in a exception in builds due GetInstanceID() returning 0 in editor but raising a nullref exception in the build.
+
+## [7.0]
+
+### Added
+- Compute shader based GPU solver backend.
+- More efficient solver update cycle, that also removes the need to have ObiUpdater components.
+- Aerodynamic constraint support for ObiRope, ObiRod and ObiBone.
 
 ### Changed
-- Updated UnsafeList with its generic version for supporting newer versions of the Collections package.
+- Rendering system is now fully multithreaded, integrated with the solver backend.
 
-## [6.5.2]
-
-### Changed
-- Slightly improved overall performance by only updating collision material references during OnValidate()
-- Exposed solver.activeParticles and solver.colors as a ObiNativeIntList instead of int[], which allows to use them directly in jobs.
-- Updated for compatibility with newest Collections package.
+### Removed
+- Native library based 'Oni' solver backend.
+- ObiUpdater and all derived classes have been removed.
 
 ## [6.5.1]
 

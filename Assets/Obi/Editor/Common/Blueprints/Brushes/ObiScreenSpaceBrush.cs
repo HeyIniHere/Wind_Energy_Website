@@ -17,7 +17,7 @@ namespace Obi
         protected override float WeightFromDistance(float distance)
         {
             // anything outside the brush should have zero weight:
-            if (distance > radius)
+            if (distance * EditorGUIUtility.pixelsPerPoint > radius)
                 return 0;
             return 1;
         }

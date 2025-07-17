@@ -22,23 +22,24 @@ namespace Obi
             picker.OnParticlePicked.AddListener(Picker_OnParticleDragged);
             picker.OnParticleDragged.AddListener(Picker_OnParticleDragged);
             picker.OnParticleReleased.AddListener(Picker_OnParticleReleased);
+
+            picker.solver.OnSimulationStart += Solver_OnEndSimulation;
         }
 
         void OnDisable()
         {
+            picker.solver.OnSimulationStart -= Solver_OnEndSimulation;
+
             picker.OnParticlePicked.RemoveListener(Picker_OnParticleDragged);
             picker.OnParticleDragged.RemoveListener(Picker_OnParticleDragged);
             picker.OnParticleReleased.RemoveListener(Picker_OnParticleReleased);
             lineRenderer.positionCount = 0;
         }
 
-        void FixedUpdate()
+        private void Solver_OnEndSimulation(ObiSolver solver, float timeToSimulate, float substepTime)
         {
-            ObiSolver solver = picker.solver;
-
             if (solver != null && pickArgs != null)
             {
-
                 // Calculate picking position in solver space:
                 Vector4 targetPosition = solver.transform.InverseTransformPoint(pickArgs.worldPosition);
 
@@ -51,7 +52,6 @@ namespace Obi
                     Vector4 position = solver.positions[pickArgs.particleIndex];
                     Vector4 velocity = solver.velocities[pickArgs.particleIndex];
                     solver.externalForces[pickArgs.particleIndex] = ((targetPosition - position) * springStiffness - velocity * springDamping) / invMass;
-
 
                     if (drawSpring)
                     {

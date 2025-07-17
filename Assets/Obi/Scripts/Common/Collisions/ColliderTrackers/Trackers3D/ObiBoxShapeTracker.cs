@@ -12,17 +12,9 @@ namespace Obi{
             this.collider = collider;
 		}		
 	
-		public override bool UpdateIfNeeded (){
+		public override void UpdateIfNeeded (){
 
 			BoxCollider box = collider as BoxCollider;
-
-            /*if (box != null && (box.size != size || box.center != center)){
-				size = box.size;
-				center = box.center;
-				adaptor.Set(center, size);
-				Oni.UpdateShape(oniShape,ref adaptor);
-				return true;
-			}*/
 
             // retrieve collision world and index:
             var world = ObiColliderWorld.GetInstance();
@@ -32,9 +24,11 @@ namespace Obi{
             var shape = world.colliderShapes[index];
             shape.type = ColliderShape.ShapeType.Box;
             shape.filter = source.Filter;
-            shape.flags = box.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody        != null ? source.Rigidbody.handle.index         : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = box.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.center = box.center;
             shape.size = box.size;
@@ -47,10 +41,9 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(box.transform);
+            trfm.FromTransform3D(box.transform, source.Rigidbody as ObiRigidbody);
             world.colliderTransforms[index] = trfm;
 
-            return true;
 		}
 
 	}

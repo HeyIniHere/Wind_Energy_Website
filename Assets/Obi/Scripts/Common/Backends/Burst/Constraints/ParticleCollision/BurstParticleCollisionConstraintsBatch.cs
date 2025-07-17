@@ -24,7 +24,7 @@ namespace Obi
             this.batchData = batchData;
         }
 
-        public override JobHandle Initialize(JobHandle inputDeps, float substepTime)
+        public override JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var updateContacts = new UpdateParticleContactsJob()
             {
@@ -33,7 +33,7 @@ namespace Obi
                 velocities = solverImplementation.velocities,
                 radii = solverImplementation.principalRadii,
                 invMasses = solverImplementation.invMasses,
-                invInertiaTensors = solverImplementation.invInertiaTensors,
+                invRotationalMasses = solverImplementation.invRotationalMasses,
 
                 simplices = solverImplementation.simplices,
                 simplexCounts = solverImplementation.simplexCounts,
@@ -41,7 +41,8 @@ namespace Obi
                 particleMaterialIndices = solverImplementation.collisionMaterials,
                 collisionMaterials = ObiColliderWorld.GetInstance().collisionMaterials.AsNativeArray<BurstCollisionMaterial>(),
 
-                contacts = ((BurstSolverImpl)constraints.solver).particleContacts,
+                contacts = ((BurstSolverImpl)constraints.solver).abstraction.particleContacts.AsNativeArray<BurstContact>(),
+                effectiveMasses = ((BurstSolverImpl)constraints.solver).abstraction.particleContactEffectiveMasses.AsNativeArray<ContactEffectiveMasses>(),
                 batchData = batchData
             };
 
@@ -49,7 +50,7 @@ namespace Obi
             return updateContacts.Schedule(batchData.workItemCount, batchCount, inputDeps);
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var parameters = solverAbstraction.GetConstraintParameters(m_ConstraintType);
 
@@ -60,6 +61,7 @@ namespace Obi
                 invMasses = solverImplementation.invMasses,
                 radii = solverImplementation.principalRadii,
                 particleMaterialIndices = solverImplementation.collisionMaterials,
+                fluidInterface = solverImplementation.fluidInterface,
                 collisionMaterials = ObiColliderWorld.GetInstance().collisionMaterials.AsNativeArray<BurstCollisionMaterial>(),
 
                 simplices = solverImplementation.simplices,
@@ -67,7 +69,9 @@ namespace Obi
 
                 deltas = solverImplementation.positionDeltas,
                 counts = solverImplementation.positionConstraintCounts,
-                contacts = ((BurstSolverImpl)constraints.solver).particleContacts,
+                userData = solverImplementation.userData,
+                contacts = solverAbstraction.particleContacts.AsNativeArray<BurstContact>(),
+                effectiveMasses = ((BurstSolverImpl)constraints.solver).abstraction.particleContactEffectiveMasses.AsNativeArray<ContactEffectiveMasses>(),
                 batchData = batchData,
 
                 constraintParameters = parameters,
@@ -86,7 +90,7 @@ namespace Obi
 
             var applyConstraints = new ApplyBatchedCollisionConstraintsBatchJob()
             {
-                contacts = ((BurstSolverImpl)constraints.solver).particleContacts,
+                contacts = solverAbstraction.particleContacts.AsNativeArray<BurstContact>(),
 
                 simplices = solverImplementation.simplices,
                 simplexCounts = solverImplementation.simplexCounts,
@@ -117,7 +121,7 @@ namespace Obi
             [ReadOnly] public NativeArray<float4> velocities;
             [ReadOnly] public NativeArray<float4> radii;
             [ReadOnly] public NativeArray<float> invMasses;
-            [ReadOnly] public NativeArray<float4> invInertiaTensors;
+            [ReadOnly] public NativeArray<float> invRotationalMasses;
 
             [ReadOnly] public NativeArray<int> particleMaterialIndices;
             [ReadOnly] public NativeArray<BurstCollisionMaterial> collisionMaterials;
@@ -126,6 +130,7 @@ namespace Obi
             [ReadOnly] public NativeArray<int> simplices;
             [ReadOnly] public SimplexCounts simplexCounts;
 
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<ContactEffectiveMasses> effectiveMasses;
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<BurstContact> contacts;
 
             [ReadOnly] public BatchData batchData;
@@ -138,6 +143,7 @@ namespace Obi
                 for (int i = start; i < end; ++i)
                 {
                     var contact = contacts[i];
+                    var efMasses = effectiveMasses[i];
 
                     int simplexStartA = simplexCounts.GetSimplexStartAndSize(contact.bodyA, out int simplexSizeA);
                     int simplexStartB = simplexCounts.GetSimplexStartAndSize(contact.bodyB, out int simplexSizeB);
@@ -147,14 +153,14 @@ namespace Obi
                     quaternion simplexPrevOrientationA = new quaternion(0, 0, 0, 0);
                     float simplexRadiusA = 0;
                     float simplexInvMassA = 0;
-                    float4 simplexInvInertiaA = float4.zero;
+                    float simplexInvRotationalMassA = 0;
 
                     float4 simplexVelocityB = float4.zero;
                     float4 simplexPrevPositionB = float4.zero;
                     quaternion simplexPrevOrientationB = new quaternion(0, 0, 0, 0);
                     float simplexRadiusB = 0;
                     float simplexInvMassB = 0;
-                    float4 simplexInvInertiaB = float4.zero;
+                    float simplexInvRotationalMassB = 0;
 
                     for (int j = 0; j < simplexSizeA; ++j)
                     {
@@ -163,7 +169,7 @@ namespace Obi
                         simplexPrevPositionA += prevPositions[particleIndex] * contact.pointA[j];
                         simplexPrevOrientationA.value += prevOrientations[particleIndex].value * contact.pointA[j];
                         simplexInvMassA += invMasses[particleIndex] * contact.pointA[j];
-                        simplexInvInertiaA += invInertiaTensors[particleIndex] * contact.pointA[j];
+                        simplexInvRotationalMassA += invRotationalMasses[particleIndex] * contact.pointA[j];
                         simplexRadiusA += BurstMath.EllipsoidRadius(contact.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * contact.pointA[j];
                     }
 
@@ -174,20 +180,21 @@ namespace Obi
                         simplexPrevPositionB += prevPositions[particleIndex] * contact.pointB[j];
                         simplexPrevOrientationB.value += prevOrientations[particleIndex].value * contact.pointB[j];
                         simplexInvMassB += invMasses[particleIndex] * contact.pointB[j];
-                        simplexInvInertiaB += invInertiaTensors[particleIndex] * contact.pointB[j];
+                        simplexInvRotationalMassB += invRotationalMasses[particleIndex] * contact.pointB[j];
                         simplexRadiusB += BurstMath.EllipsoidRadius(contact.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * contact.pointB[j];
                     }
 
-                    // update contact distance
-                    float dAB = math.dot(simplexPrevPositionA - simplexPrevPositionB, contact.normal);
-                    contact.distance = dAB - (simplexRadiusA + simplexRadiusB);
+                    simplexPrevPositionA.w = 0;
+                    simplexPrevPositionB.w = 0;
 
-                    // calculate contact points:
-                    float4 contactPointA = simplexPrevPositionB + contact.normal * (contact.distance + simplexRadiusB);
-                    float4 contactPointB = simplexPrevPositionA - contact.normal * (contact.distance + simplexRadiusA);
+                    // update contact distance
+                    float4 contactPointA = simplexPrevPositionA - contact.normal * simplexRadiusA;
+                    float4 contactPointB = simplexPrevPositionB + contact.normal * simplexRadiusB;
+
+                    contact.distance = math.dot(contactPointA - contactPointB, contact.normal);
 
                     // update contact basis:
-                    contact.CalculateBasis(simplexVelocityA - simplexVelocityB);
+                    contact.CalculateTangent(simplexVelocityA - simplexVelocityB);
 
                     // update contact masses:
                     int aMaterialIndex = particleMaterialIndices[simplices[simplexStartA]];
@@ -195,10 +202,14 @@ namespace Obi
                     bool rollingContacts = (aMaterialIndex >= 0 ? collisionMaterials[aMaterialIndex].rollingContacts > 0 : false) |
                                            (bMaterialIndex >= 0 ? collisionMaterials[bMaterialIndex].rollingContacts > 0 : false);
 
-                    contact.CalculateContactMassesA(simplexInvMassA, simplexInvInertiaA, simplexPrevPositionA, simplexPrevOrientationA, contactPointA, rollingContacts);
-                    contact.CalculateContactMassesB(simplexInvMassB, simplexInvInertiaB, simplexPrevPositionB, simplexPrevOrientationB, contactPointB, rollingContacts);
+                    float4 invInertiaTensorA = math.rcp(BurstMath.GetParticleInertiaTensor(simplexRadiusA, simplexInvRotationalMassA) + new float4(BurstMath.epsilon));
+                    float4 invInertiaTensorB = math.rcp(BurstMath.GetParticleInertiaTensor(simplexRadiusB, simplexInvRotationalMassB) + new float4(BurstMath.epsilon));
+
+                    efMasses.CalculateContactMassesA(simplexInvMassA, invInertiaTensorA, simplexPrevPositionA, simplexPrevOrientationA, contactPointA, contact.normal, contact.tangent, contact.bitangent, rollingContacts);
+                    efMasses.CalculateContactMassesB(simplexInvMassB, invInertiaTensorB, simplexPrevPositionB, simplexPrevOrientationB, contactPointB, contact.normal, contact.tangent, contact.bitangent, rollingContacts);
 
                     contacts[i] = contact;
+                    effectiveMasses[i] = efMasses;
                 }
             }
         }
@@ -210,6 +221,7 @@ namespace Obi
             [ReadOnly] public NativeArray<float> invMasses;
             [ReadOnly] public NativeArray<float4> radii;
             [ReadOnly] public NativeArray<int> particleMaterialIndices;
+            [ReadOnly] public NativeArray<float4> fluidInterface;
             [ReadOnly] public NativeArray<BurstCollisionMaterial> collisionMaterials;
 
             // simplex arrays:
@@ -218,8 +230,10 @@ namespace Obi
 
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> positions;
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> deltas;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> userData;
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<int> counts;
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<BurstContact> contacts;
+            [ReadOnly] public NativeArray<ContactEffectiveMasses> effectiveMasses;
 
             [ReadOnly] public Oni.ConstraintParameters constraintParameters;
             [ReadOnly] public Oni.SolverParameters solverParameters;
@@ -240,34 +254,42 @@ namespace Obi
                     int simplexStartA = simplexCounts.GetSimplexStartAndSize(contact.bodyA, out int simplexSizeA);
                     int simplexStartB = simplexCounts.GetSimplexStartAndSize(contact.bodyB, out int simplexSizeB);
 
-
                     // Combine collision materials:
                     BurstCollisionMaterial material = CombineCollisionMaterials(simplices[simplexStartA], simplices[simplexStartB]);
 
                     float4 simplexPositionA = float4.zero, simplexPositionB = float4.zero;
                     float simplexRadiusA = 0, simplexRadiusB = 0;
+                    float4 simplexUserDataA = float4.zero, simplexUserDataB = float4.zero;
+                    float miscibility = 0;
 
                     for (int j = 0; j < simplexSizeA; ++j)
                     {
                         int particleIndex = simplices[simplexStartA + j];
                         simplexPositionA += positions[particleIndex] * contact.pointA[j];
                         simplexRadiusA += BurstMath.EllipsoidRadius(contact.normal, orientations[particleIndex], radii[particleIndex].xyz) * contact.pointA[j];
+                        simplexUserDataA += userData[particleIndex] * contact.pointA[j];
+                        miscibility += fluidInterface[particleIndex].w * contact.pointA[j];
                     }
                     for (int j = 0; j < simplexSizeB; ++j)
                     {
                         int particleIndex = simplices[simplexStartB + j];
                         simplexPositionB += positions[particleIndex] * contact.pointB[j];
                         simplexRadiusB += BurstMath.EllipsoidRadius(contact.normal, orientations[particleIndex], radii[particleIndex].xyz) * contact.pointA[j];
+                        simplexUserDataB += userData[particleIndex] * contact.pointB[j];
+                        miscibility += fluidInterface[particleIndex].w * contact.pointB[j];
                     }
+
+                    simplexPositionA.w = 0;
+                    simplexPositionB.w = 0;
 
                     float4 posA = simplexPositionA - contact.normal * simplexRadiusA;
                     float4 posB = simplexPositionB + contact.normal * simplexRadiusB;
 
                     // adhesion:
-                    float lambda = contact.SolveAdhesion(posA, posB, material.stickDistance, material.stickiness, substepTime);
+                    float lambda = contact.SolveAdhesion(effectiveMasses[i].TotalNormalInvMass, posA, posB, material.stickDistance, material.stickiness, substepTime);
 
                     // depenetration:
-                    lambda += contact.SolvePenetration(posA, posB, solverParameters.maxDepenetration * substepTime);
+                    lambda += contact.SolvePenetration(effectiveMasses[i].TotalNormalInvMass, posA, posB, solverParameters.maxDepenetration * substepTime);
 
                     // Apply normal impulse to both particles (w/ shock propagation):
                     if (math.abs(lambda) > BurstMath.epsilon)
@@ -292,20 +314,27 @@ namespace Obi
                         }
                     }
 
+                    // property diffusion:
+                    if (contact.distance < solverParameters.collisionMargin)
+                    {
+                        float diffusionSpeed = miscibility * 0.5f * substepTime;
+                        float4 userDelta = (simplexUserDataB - simplexUserDataA) * solverParameters.diffusionMask * diffusionSpeed;
+
+                        for (int j = 0; j < simplexSizeA; ++j)
+                            userData[simplices[simplexStartA + j]] += userDelta * contact.pointA[j];
+
+                        for (int j = 0; j < simplexSizeB; ++j)
+                            userData[simplices[simplexStartB + j]] -= userDelta * contact.pointB[j];
+                    }
+
                     // Apply position deltas immediately, if using sequential evaluation:
                     if (constraintParameters.evaluationOrder == Oni.ConstraintParameters.EvaluationOrder.Sequential)
                     {
                         for (int j = 0; j < simplexSizeA; ++j)
-                        {
-                            int particleIndex = simplices[simplexStartA + j];
-                            BurstConstraintsBatchImpl.ApplyPositionDelta(particleIndex, constraintParameters.SORFactor, ref positions, ref deltas, ref counts);
-                        }
+                            ApplyPositionDelta(simplices[simplexStartA + j], constraintParameters.SORFactor, ref positions, ref deltas, ref counts);
 
                         for (int j = 0; j < simplexSizeB; ++j)
-                        {
-                            int particleIndex = simplices[simplexStartB + j];
-                            BurstConstraintsBatchImpl.ApplyPositionDelta(particleIndex, constraintParameters.SORFactor, ref positions, ref deltas, ref counts);
-                        }
+                            ApplyPositionDelta(simplices[simplexStartB + j], constraintParameters.SORFactor, ref positions, ref deltas, ref counts);
                     }
 
                     contacts[i] = contact;

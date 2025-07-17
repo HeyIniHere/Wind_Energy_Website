@@ -24,21 +24,20 @@ namespace Obi
 
         public int GetSimplexStartAndSize(int index, out int size)
         {
-            if (index < pointCount)
+            if (index < triangleCount)
             {
-                size = 1;
-                return index;
+                size = 3;
+                return index * 3;
             }
-            else if (index < pointCount + edgeCount)
+            else if (index < triangleCount + edgeCount)
             {
                 size = 2;
-                return pointCount + (index - pointCount) * 2;
+                return triangleCount * 3 + (index - triangleCount) * 2;
             }
             else if (index < simplexCount)
             {
-                size = 3;
-                int triStart = pointCount + edgeCount * 2;
-                return triStart + (index - pointCount - edgeCount) * 3;
+                size = 1;
+                return triangleCount * 3 + edgeCount * 2 + (index - triangleCount - edgeCount);
             }
             size = 0;
             return 0;

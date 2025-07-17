@@ -11,7 +11,7 @@ namespace Obi{
 		public virtual void Destroy(){
 		}
 
-		public abstract bool UpdateIfNeeded ();
+		public abstract void UpdateIfNeeded ();
 
 	}
 

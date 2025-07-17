@@ -30,7 +30,7 @@ namespace Obi
             get { return m_BatchImpl; }
         }
 
-        public ObiDistanceConstraintsBatch(int a = 0) 
+        public ObiDistanceConstraintsBatch(ObiDistanceConstraintsData constraints = null) : base()
         { 
         }
 
@@ -135,6 +135,11 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            restLengths.Dispose();
+            stiffnesses.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

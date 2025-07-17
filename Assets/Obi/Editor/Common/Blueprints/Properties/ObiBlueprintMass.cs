@@ -23,6 +23,7 @@ namespace Obi
         public override void Set(int index, float value)
         {
             editor.blueprint.invMasses[index] = ObiUtils.MassToInvMass(value);
+            editor.blueprint.edited = true;
         }
         public override bool Masked(int index)
         {

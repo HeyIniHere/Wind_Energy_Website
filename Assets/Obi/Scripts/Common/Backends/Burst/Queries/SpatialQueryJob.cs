@@ -54,7 +54,7 @@ namespace Obi
             {
                 var cell = grid.usedCells[c];
 
-                // calculate thickedned grid bounds:
+                // calculate thickened grid bounds:
                 float size = NativeMultilevelGrid<int>.CellSizeOfLevel(cell.Coords.w);
                 float4 cellPos = (float4)cell.Coords * size;
                 BurstAabb cellBounds = new BurstAabb(cellPos - new float4(size), cellPos + new float4(2 * size));
@@ -85,7 +85,7 @@ namespace Obi
 
         private BurstAabb CalculateShapeAABB(in BurstQueryShape shape)
         {
-            float offset = shape.contactOffset + shape.distance;
+            float offset = shape.contactOffset + shape.maxDistance;
             switch (shape.type)
             {
                 case QueryShape.QueryType.Sphere:
@@ -93,7 +93,7 @@ namespace Obi
                 case QueryShape.QueryType.Box:
                     return new BurstAabb(shape.center - shape.size*0.5f - offset, shape.center + shape.size * 0.5f + offset);
                 case QueryShape.QueryType.Ray:
-                    return new BurstAabb(shape.center, shape.size, offset);
+                    return new BurstAabb(shape.center, shape.center + shape.size, offset);
             }
             return new BurstAabb();
         }
@@ -108,56 +108,21 @@ namespace Obi
             switch (shape.type)
             {
                 case QueryShape.QueryType.Sphere:
-                    BurstSphereQuery sphereShape = new BurstSphereQuery() { colliderToSolver = shapeToSolver, shape = shape};
+                    BurstSphereQuery sphereShape = new BurstSphereQuery { colliderToSolver = shapeToSolver, shape = shape};
                     sphereShape.Query(shapeIndex, positions, orientations, radii, simplices,
                                       simplexIndex, simplexStart, simplexSize, results, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
                     break;
                 case QueryShape.QueryType.Box:
-                    BurstBoxQuery boxShape = new BurstBoxQuery() { colliderToSolver = shapeToSolver, shape = shape};
+                    BurstBoxQuery boxShape = new BurstBoxQuery { colliderToSolver = shapeToSolver, shape = shape};
                     boxShape.Query(shapeIndex, positions, orientations, radii, simplices,
                                       simplexIndex, simplexStart, simplexSize, results, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
                     break;
                 case QueryShape.QueryType.Ray:
-                    BurstRay rayShape = new BurstRay() { colliderToSolver = shapeToSolver, shape = shape };
+                    BurstRay rayShape = new BurstRay { colliderToSolver = shapeToSolver, shape = shape };
                     rayShape.Query(shapeIndex, positions, orientations, radii, simplices,
                                       simplexIndex, simplexStart, simplexSize, results, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
                     break;
             }
-        }
-    }
-
-    [BurstCompile]
-    public struct CalculateQueryDistances : IJobParallelFor
-    {
-        [ReadOnly] public NativeArray<float4> prevPositions;
-        [ReadOnly] public NativeArray<quaternion> prevOrientations;
-        [ReadOnly] public NativeArray<float4> radii;
-
-        // simplex arrays:
-        [ReadOnly] public NativeArray<int> simplices;
-        [ReadOnly] public SimplexCounts simplexCounts;
-
-        public NativeArray<BurstQueryResult> queryResults;
-
-        public void Execute(int i)
-        {
-            var result = queryResults[i];
-
-            int simplexStart = simplexCounts.GetSimplexStartAndSize(result.simplexIndex, out int simplexSize);
-
-            float4 simplexPrevPosition = float4.zero;
-            float simplexRadius = 0;
-
-            for (int j = 0; j < simplexSize; ++j)
-            {
-                int particleIndex = simplices[simplexStart + j];
-                simplexPrevPosition += prevPositions[particleIndex] * result.simplexBary[j];
-                simplexRadius += BurstMath.EllipsoidRadius(result.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * result.simplexBary[j];
-            }
-
-            // update contact distance
-            result.distance = math.dot(simplexPrevPosition - result.queryPoint, result.normal) - simplexRadius;
-            queryResults[i] = result;
         }
     }
 }

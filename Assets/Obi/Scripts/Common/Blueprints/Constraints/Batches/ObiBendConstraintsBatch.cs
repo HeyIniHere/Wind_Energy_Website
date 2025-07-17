@@ -115,6 +115,12 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            restBends.Dispose();
+            bendingStiffnesses.Dispose();
+            plasticity.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

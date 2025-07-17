@@ -10,7 +10,8 @@ namespace Obi
 
         void UpdateWorld(float deltaTime);
 
-        void SetColliders(ObiNativeColliderShapeList shapes, ObiNativeAabbList bounds, ObiNativeAffineTransformList transforms, int count);
+        void SetColliders(ObiNativeColliderShapeList shapes, ObiNativeAabbList bounds, ObiNativeAffineTransformList transforms);
+        void SetForceZones(ObiNativeForceZoneList forceZones);
         void SetRigidbodies(ObiNativeRigidbodyList rigidbody);
 
         void SetCollisionMaterials(ObiNativeCollisionMaterialList materials);

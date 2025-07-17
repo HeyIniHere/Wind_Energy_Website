@@ -40,7 +40,7 @@ namespace Obi
         }
 
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var projectConstraints = new VolumeConstraintsBatchJob()
             {
@@ -106,10 +106,7 @@ namespace Obi
             {
                 float compliance = pressureStiffness[i].y / deltaTimeSqr;
 
-                NativeList<int> particleIndices = new NativeList<int>(numTriangles[i] * 3, Allocator.Temp);
-
                 // calculate volume:
-                float volume = 0;
                 for (int j = 0; j < numTriangles[i]; ++j)
                 {
                     int v = (firstTriangle[i] + j) * 3;
@@ -117,21 +114,12 @@ namespace Obi
                     int i2 = triangles[v + 1];
                     int i3 = triangles[v + 2];
 
-                    particleIndices.Add(i1);
-                    particleIndices.Add(i2);
-                    particleIndices.Add(i3);
-
-                    //calculate this triangle's volume contribution:
-                    volume += math.dot(math.cross(positions[i1].xyz, positions[i2].xyz), positions[i3].xyz) / 6.0f;
+                    gradients[i1] = new float4(0, 0, 0, 1);
+                    gradients[i2] = new float4(0, 0, 0, 1);
+                    gradients[i3] = new float4(0, 0, 0, 1);
                 }
 
-                particleIndices.Sort();
-                int particleCount = particleIndices.AsArray().Unique();
-
-                // accumulate particle gradients:
-                for (int j = 0; j < particleCount; ++j)
-                    gradients[particleIndices[j]] = float4.zero;
-
+                float volume = 0;
                 for (int j = 0; j < numTriangles[i]; ++j)
                 {
                     int v = (firstTriangle[i] + j) * 3;
@@ -143,14 +131,28 @@ namespace Obi
                     gradients[i1] += new float4(math.cross(positions[i2].xyz, positions[i3].xyz), 0);
                     gradients[i2] += new float4(math.cross(positions[i3].xyz, positions[i1].xyz), 0);
                     gradients[i3] += new float4(math.cross(positions[i1].xyz, positions[i2].xyz), 0);
+
+                    //calculate this triangle's volume contribution:
+                    volume += math.dot(math.cross(positions[i1].xyz, positions[i2].xyz), positions[i3].xyz) / 6.0f;
                 }
 
                 // calculate constraint denominator (G(Cj)*inv(M)):
                 float denominator = 0;
-                for (int j = 0; j < particleCount; ++j)
+                for (int j = 0; j < numTriangles[i]; ++j)
                 {
-                    int p = particleIndices[j];
-                    denominator += invMasses[p] * math.lengthsq(gradients[p]);
+                    int v = (firstTriangle[i] + j) * 3;
+                    int i1 = triangles[v];
+                    int i2 = triangles[v + 1];
+                    int i3 = triangles[v + 2];
+
+                    denominator += invMasses[i1] * math.lengthsq(gradients[i1].xyz) * gradients[i1].w;
+                    gradients[i1] = new float4(gradients[i1].xyz,0);
+
+                    denominator += invMasses[i2] * math.lengthsq(gradients[i2].xyz) * gradients[i2].w;
+                    gradients[i2] = new float4(gradients[i2].xyz, 0);
+
+                    denominator += invMasses[i3] * math.lengthsq(gradients[i3].xyz) * gradients[i3].w;
+                    gradients[i3] = new float4(gradients[i3].xyz, 0);
                 }
 
                 // equality constraint: volume - pressure * rest volume = 0
@@ -161,11 +163,21 @@ namespace Obi
                 lambdas[i] += dlambda;
 
                 // calculate position deltas:
-                for (int j = 0; j < particleCount; ++j)
+                for (int j = 0; j < numTriangles[i]; ++j)
                 {
-                    int p = particleIndices[j];
-                    deltas[p] += dlambda * invMasses[p] * gradients[p];
-                    counts[p]++;
+                    int v = (firstTriangle[i] + j) * 3;
+                    int i1 = triangles[v];
+                    int i2 = triangles[v + 1];
+                    int i3 = triangles[v + 2];
+
+                    deltas[i1] += dlambda * invMasses[i1] * gradients[i1];
+                    counts[i1]++;
+
+                    deltas[i2] += dlambda * invMasses[i2] * gradients[i2];
+                    counts[i2]++;
+
+                    deltas[i3] += dlambda * invMasses[i3] * gradients[i3];
+                    counts[i3]++;
                 }
             }
         }

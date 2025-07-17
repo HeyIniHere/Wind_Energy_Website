@@ -27,6 +27,7 @@ namespace Obi
             value = Mathf.Max(0.0000001f, value);
             float ratio = value / Get(index);
             editor.blueprint.principalRadii[index] = editor.blueprint.principalRadii[index] * ratio;
+            editor.blueprint.edited = true;
         }
         public override bool Masked(int index)
         {

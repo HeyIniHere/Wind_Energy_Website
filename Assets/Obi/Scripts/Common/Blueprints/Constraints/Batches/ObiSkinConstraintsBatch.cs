@@ -131,6 +131,13 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            skinPoints.Dispose();
+            skinNormals.Dispose();
+            skinRadiiBackstop.Dispose();
+            skinCompliance.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

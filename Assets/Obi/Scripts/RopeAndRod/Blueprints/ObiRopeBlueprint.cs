@@ -10,7 +10,6 @@ namespace Obi
     [CreateAssetMenu(fileName = "rope blueprint", menuName = "Obi/Rope Blueprint", order = 140)]
     public class ObiRopeBlueprint : ObiRopeBlueprintBase
     {
-
         public int pooledParticles = 100;
 
         public const float DEFAULT_PARTICLE_MASS = 0.1f;
@@ -113,6 +112,9 @@ namespace Obi
                     yield return new CoroutineJob.ProgressInfo("ObiRope: generating particles...", i / (float)m_ActiveParticleCount);
             }
 
+            // Deformable edges:
+            CreateDeformableEdges(numSegments);
+
             // Create edge simplices:
             CreateSimplices(numSegments);
 
@@ -127,6 +129,12 @@ namespace Obi
 
             while (bc.MoveNext())
                 yield return bc.Current;
+
+            // Create aerodynamic constraints:
+            IEnumerator ac = CreateAerodynamicConstraints();
+
+            while (ac.MoveNext())
+                yield return ac.Current;
 
             // Recalculate rest length:
             m_RestLength = 0;
@@ -193,7 +201,7 @@ namespace Obi
                 var batch = bendConstraintsData.batches[i % 3] as ObiBendConstraintsBatch;
 
                 Vector3Int indices = new Vector3Int(i, i + 2, i + 1);
-                float restBend = ObiUtils.RestBendingConstraint(restPositions[indices[0]], restPositions[indices[1]], restPositions[indices[2]]);
+                float restBend = 0;//ObiUtils.RestBendingConstraint(restPositions[indices[0]], restPositions[indices[1]], restPositions[indices[2]]);
                 batch.AddConstraint(indices, restBend);
 
                 if (i < m_ActiveParticleCount - 2)

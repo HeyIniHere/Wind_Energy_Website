@@ -23,6 +23,8 @@ namespace Obi
         private NativeArray<float4x4> linearTransforms;
         private NativeArray<float4x4> plasticDeformations;
 
+        private bool m_RecalculateRestShape = false;
+
         public BurstShapeMatchingConstraintsBatch(BurstShapeMatchingConstraints constraints)
         {
             m_Constraints = constraints;
@@ -67,13 +69,37 @@ namespace Obi
                 Aqq.Dispose();
         }
 
-        public override JobHandle Initialize(JobHandle inputDeps, float substepTime)
+        public override JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             return inputDeps;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
+            if (m_RecalculateRestShape)
+            {
+                m_RecalculateRestShape = false;
+
+                var calculateRest = new ShapeMatchingCalculateRestJob()
+                {
+                    particleIndices = particleIndices,
+                    firstIndex = firstIndex,
+                    numIndices = numIndices,
+                    restComs = restComs,
+                    coms = coms,
+                    Aqq = Aqq,
+                    deformation = plasticDeformations,
+
+                    restPositions = solverAbstraction.restPositions.AsNativeArray<float4>(),
+                    restOrientations = solverAbstraction.restOrientations.AsNativeArray<quaternion>(),
+                    principalRadii = solverAbstraction.principalRadii.AsNativeArray<float4>(),
+                    invMasses = solverAbstraction.invMasses.AsNativeArray<float>(),
+                    invRotationalMasses = solverAbstraction.invRotationalMasses.AsNativeArray<float>(),
+                };
+
+                inputDeps = calculateRest.Schedule(numIndices.Length, 64, inputDeps);
+            }
+
             var projectConstraints = new ShapeMatchingConstraintsBatchJob()
             {
                 particleIndices = particleIndices,
@@ -94,7 +120,7 @@ namespace Obi
                 restOrientations = solverImplementation.restOrientations,
                 invMasses = solverImplementation.invMasses,
                 invRotationalMasses = solverImplementation.invRotationalMasses,
-                invInertiaTensors = solverImplementation.invInertiaTensors,
+                principalRadii = solverImplementation.principalRadii,
 
                 deltas = solverImplementation.positionDeltas,
                 counts = solverImplementation.positionConstraintCounts,
@@ -127,25 +153,7 @@ namespace Obi
 
         public void CalculateRestShapeMatching()
         {
-            var deps = ((BurstSolverImpl)constraints.solver).RecalculateInertiaTensors(new JobHandle());
-
-            var calculateRest = new ShapeMatchingCalculateRestJob()
-            {
-                particleIndices = particleIndices,
-                firstIndex = firstIndex,
-                numIndices = numIndices,
-                restComs = restComs,
-                coms = coms,
-                Aqq = Aqq,
-                deformation = plasticDeformations,
-
-                restPositions = solverAbstraction.restPositions.AsNativeArray<float4>(),
-                restOrientations = solverAbstraction.restOrientations.AsNativeArray<quaternion>(),
-                invMasses = solverAbstraction.invMasses.AsNativeArray<float>(),
-                invInertiaTensors = solverAbstraction.invInertiaTensors.AsNativeArray<float4>(),
-            };
-
-            calculateRest.Schedule(numIndices.Length, 64, deps).Complete();
+            m_RecalculateRestShape = true;
         }
 
         protected static void RecalculateRestData(int i,
@@ -156,9 +164,10 @@ namespace Obi
                                                   ref NativeArray<float4x4> deformation,
                                                   ref NativeArray<int> numIndices,
                                                   ref NativeArray<float> invMasses,
+                                                  ref NativeArray<float> invRotationalMasses,
                                                   ref NativeArray<float4> restPositions,
                                                   ref NativeArray<quaternion> restOrientations,
-                                                  ref NativeArray<float4> invInertiaTensors)
+                                                  ref NativeArray<float4> principalRadii)
         {
             int k = 0;
             float maximumMass = 10000;
@@ -185,7 +194,7 @@ namespace Obi
                 particleR[3][3] = 0;
 
                 _Rqq += math.mul(particleR,
-                                 math.mul(math.rcp(invInertiaTensors[k] + new float4(BurstMath.epsilon)).asDiagonal(),
+                                 math.mul(BurstMath.GetParticleInertiaTensor(principalRadii[k], invRotationalMasses[k]).asDiagonal(),
                                  math.transpose(particleR))
                                 );
 
@@ -225,7 +234,8 @@ namespace Obi
             [ReadOnly] public NativeArray<float4> restPositions;
             [ReadOnly] public NativeArray<quaternion> restOrientations;
             [ReadOnly] public NativeArray<float> invMasses;
-            [ReadOnly] public NativeArray<float4> invInertiaTensors;
+            [ReadOnly] public NativeArray<float> invRotationalMasses;
+            [ReadOnly] public NativeArray<float4> principalRadii;
 
             public void Execute(int i)
             {
@@ -237,9 +247,10 @@ namespace Obi
                                     ref deformation,
                                     ref numIndices,
                                     ref invMasses,
+                                    ref invRotationalMasses,
                                     ref restPositions,
                                     ref restOrientations,
-                                    ref invInertiaTensors);
+                                    ref principalRadii);
             }
         }
 
@@ -265,7 +276,7 @@ namespace Obi
             [ReadOnly] public NativeArray<quaternion> restOrientations;
             [ReadOnly] public NativeArray<float> invMasses;
             [ReadOnly] public NativeArray<float> invRotationalMasses;
-            [ReadOnly] public NativeArray<float4> invInertiaTensors;
+            [ReadOnly] public NativeArray<float4> principalRadii;
 
             [NativeDisableContainerSafetyRestriction][NativeDisableParallelForRestriction] public NativeArray<quaternion> orientations;
             [NativeDisableContainerSafetyRestriction][NativeDisableParallelForRestriction] public NativeArray<float4> deltas;
@@ -298,7 +309,7 @@ namespace Obi
                     particleRT[3][3] = 0;
 
                     Rpq += math.mul(particleR,
-                                    math.mul(math.rcp(invInertiaTensors[k] + new float4(BurstMath.epsilon)).asDiagonal(),
+                                    math.mul(BurstMath.GetParticleInertiaTensor(principalRadii[k], invRotationalMasses[k]).asDiagonal(),
                                     math.transpose(particleRT))
                                     );
 
@@ -327,7 +338,7 @@ namespace Obi
                 linearTransforms[i] = math.mul(Apq_def, Aqq[i]);
 
                 // extract rotation from transform matrix, using warmstarting and few iterations:
-                constraintOrientations[i] = BurstMath.ExtractRotation(Apq_def, constraintOrientations[i], 2);
+                constraintOrientations[i] = BurstMath.ExtractRotation(Apq_def, constraintOrientations[i], 5);
 
                 // finally, obtain rotation matrix:
                 float4x4 R = constraintOrientations[i].toMatrix();
@@ -400,9 +411,10 @@ namespace Obi
                                     ref deformation,
                                     ref numIndices,
                                     ref invMasses,
+                                    ref invRotationalMasses,
                                     ref restPositions,
                                     ref restOrientations,
-                                    ref invInertiaTensors);
+                                    ref principalRadii);
                     }
                 }
 
@@ -418,9 +430,10 @@ namespace Obi
                                     ref deformation,
                                     ref numIndices,
                                     ref invMasses,
+                                    ref invRotationalMasses,
                                     ref restPositions,
                                     ref restOrientations,
-                                    ref invInertiaTensors);
+                                    ref principalRadii);
                 }
             }
         }

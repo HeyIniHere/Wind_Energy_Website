@@ -24,9 +24,9 @@ namespace Obi
         {
             if (simplexSize == 3)
             {
-                tri.Cache(positions[simplices[simplexStart]],
-                          positions[simplices[simplexStart + 1]],
-                          positions[simplices[simplexStart + 2]]);
+                tri.Cache(new float4(positions[simplices[simplexStart]].xyz,0),
+                          new float4(positions[simplices[simplexStart + 1]].xyz,0),
+                          new float4(positions[simplices[simplexStart + 2]].xyz,0));
             }
         }
 
@@ -35,16 +35,17 @@ namespace Obi
             switch (simplexSize)
             {
                 case 1:
+                default:
                     {
-                        float4 p1 = positions[simplices[simplexStart]];
+                        float4 p1 = positions[simplices[simplexStart]]; p1.w = 0;
                         projectedPoint.bary = new float4(1, 0, 0, 0);
                         projectedPoint.point = p1;
                     }
                     break;
                 case 2:
                     {
-                        float4 p1 = positions[simplices[simplexStart]];
-                        float4 p2 = positions[simplices[simplexStart + 1]];
+                        float4 p1 = positions[simplices[simplexStart]]; p1.w = 0;
+                        float4 p2 = positions[simplices[simplexStart + 1]]; p2.w = 0;
                         BurstMath.NearestPointOnEdge(p1, p2, point, out float mu);
                         projectedPoint.bary = new float4(1 - mu, mu, 0, 0);
                         projectedPoint.point = p1 * projectedPoint.bary[0] + p2 * projectedPoint.bary[1];

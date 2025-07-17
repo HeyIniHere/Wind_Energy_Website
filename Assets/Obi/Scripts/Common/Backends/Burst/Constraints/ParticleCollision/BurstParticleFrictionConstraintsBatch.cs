@@ -24,15 +24,13 @@ namespace Obi
             this.batchData = batchData;
         }
 
-        public override JobHandle Initialize(JobHandle inputDeps, float substepTime)
+        public override JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             return inputDeps;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
-            if (!((BurstSolverImpl)constraints.solver).particleContacts.IsCreated)
-                return inputDeps;
 
             var projectConstraints = new ParticleFrictionConstraintsBatchJob()
             {
@@ -42,7 +40,7 @@ namespace Obi
                 prevOrientations = solverImplementation.prevOrientations,
 
                 invMasses = solverImplementation.invMasses,
-                invInertiaTensors = solverImplementation.invInertiaTensors,
+                invRotationalMasses = solverImplementation.invRotationalMasses,
                 radii = solverImplementation.principalRadii,
                 particleMaterialIndices = solverImplementation.collisionMaterials,
                 collisionMaterials = ObiColliderWorld.GetInstance().collisionMaterials.AsNativeArray<BurstCollisionMaterial>(),
@@ -54,7 +52,8 @@ namespace Obi
                 counts = solverImplementation.positionConstraintCounts,
                 orientationDeltas = solverImplementation.orientationDeltas,
                 orientationCounts = solverImplementation.orientationConstraintCounts,
-                contacts = ((BurstSolverImpl)constraints.solver).particleContacts,
+                contacts = ((BurstSolverImpl)constraints.solver).abstraction.particleContacts.AsNativeArray<BurstContact>(),
+                effectiveMasses = ((BurstSolverImpl)constraints.solver).abstraction.particleContactEffectiveMasses.AsNativeArray<ContactEffectiveMasses>(),
 
                 batchData = batchData,
                 substepTime = substepTime,
@@ -66,14 +65,12 @@ namespace Obi
 
         public override JobHandle Apply(JobHandle inputDeps, float substepTime)
         {
-            if (!((BurstSolverImpl)constraints.solver).particleContacts.IsCreated)
-                return inputDeps;
 
             var parameters = solverAbstraction.GetConstraintParameters(m_ConstraintType);
 
             var applyConstraints = new ApplyBatchedCollisionConstraintsBatchJob()
             {
-                contacts = ((BurstSolverImpl)constraints.solver).particleContacts,
+                contacts = solverAbstraction.particleContacts.AsNativeArray<BurstContact>(),
 
                 simplices = solverImplementation.simplices,
                 simplexCounts = solverImplementation.simplexCounts,
@@ -102,7 +99,7 @@ namespace Obi
             [ReadOnly] public NativeArray<quaternion> prevOrientations;
 
             [ReadOnly] public NativeArray<float> invMasses;
-            [ReadOnly] public NativeArray<float4> invInertiaTensors;
+            [ReadOnly] public NativeArray<float> invRotationalMasses;
             [ReadOnly] public NativeArray<float4> radii;
             [ReadOnly] public NativeArray<int> particleMaterialIndices;
             [ReadOnly] public NativeArray<BurstCollisionMaterial> collisionMaterials;
@@ -118,6 +115,7 @@ namespace Obi
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<int> orientationCounts;
 
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<BurstContact> contacts;
+            [ReadOnly] public NativeArray<ContactEffectiveMasses> effectiveMasses;
 
             [ReadOnly] public BatchData batchData;
             [ReadOnly] public float substepTime;
@@ -140,16 +138,16 @@ namespace Obi
                     float4 prevPositionA = float4.zero;
                     float4 linearVelocityA = float4.zero;
                     float4 angularVelocityA = float4.zero;
-                    float4 invInertiaTensorA = float4.zero;
+                    float invRotationalMassA = 0;
                     quaternion orientationA = new quaternion(0, 0, 0, 0);
-                    float simplexRadiusA = 0;
+                    float4 simplexRadiiA = float4.zero;
 
                     float4 prevPositionB = float4.zero;
                     float4 linearVelocityB = float4.zero;
                     float4 angularVelocityB = float4.zero;
-                    float4 invInertiaTensorB = float4.zero;
+                    float invRotationalMassB = 0;
                     quaternion orientationB = new quaternion(0, 0, 0, 0);
-                    float simplexRadiusB = 0;
+                    float4 simplexRadiiB = float4.zero;
 
                     for (int j = 0; j < simplexSizeA; ++j)
                     {
@@ -157,9 +155,9 @@ namespace Obi
                         prevPositionA += prevPositions[particleIndex] * contact.pointA[j];
                         linearVelocityA += BurstIntegration.DifferentiateLinear(positions[particleIndex], prevPositions[particleIndex], substepTime) * contact.pointA[j];
                         angularVelocityA += BurstIntegration.DifferentiateAngular(orientations[particleIndex], prevOrientations[particleIndex], substepTime) * contact.pointA[j];
-                        invInertiaTensorA += invInertiaTensors[particleIndex] * contact.pointA[j];
+                        invRotationalMassA += invRotationalMasses[particleIndex] * contact.pointA[j];
                         orientationA.value += orientations[particleIndex].value * contact.pointA[j];
-                        simplexRadiusA += BurstMath.EllipsoidRadius(contact.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * contact.pointA[j];
+                        simplexRadiiA += radii[particleIndex] * contact.pointA[j];
                     }
                     for (int j = 0; j < simplexSizeB; ++j)
                     {
@@ -167,9 +165,9 @@ namespace Obi
                         prevPositionB += prevPositions[particleIndex] * contact.pointB[j];
                         linearVelocityB += BurstIntegration.DifferentiateLinear(positions[particleIndex], prevPositions[particleIndex], substepTime) * contact.pointB[j];
                         angularVelocityB += BurstIntegration.DifferentiateAngular(orientations[particleIndex], prevOrientations[particleIndex], substepTime) * contact.pointB[j];
-                        invInertiaTensorB += invInertiaTensors[particleIndex] * contact.pointB[j];
+                        invRotationalMassB += invRotationalMasses[particleIndex] * contact.pointB[j];
                         orientationB.value += orientations[particleIndex].value * contact.pointB[j];
-                        simplexRadiusB += BurstMath.EllipsoidRadius(contact.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * contact.pointB[j];
+                        simplexRadiiB += radii[particleIndex] * contact.pointB[j];
                     }
 
                     float4 rA = float4.zero, rB = float4.zero;
@@ -177,8 +175,8 @@ namespace Obi
                     // Consider angular velocities if rolling contacts are enabled:
                     if (material.rollingContacts > 0)
                     {
-                        rA = -contact.normal * simplexRadiusA;
-                        rB = contact.normal * simplexRadiusB;
+                        rA = -contact.normal * BurstMath.EllipsoidRadius(contact.normal, orientationA, simplexRadiiA.xyz);
+                        rB = contact.normal * BurstMath.EllipsoidRadius(contact.normal, orientationB, simplexRadiiB.xyz);
 
                         linearVelocityA += new float4(math.cross(angularVelocityA.xyz, rA.xyz), 0);
                         linearVelocityB += new float4(math.cross(angularVelocityB.xyz, rB.xyz), 0);
@@ -187,8 +185,8 @@ namespace Obi
                     // Calculate relative velocity:
                     float4 relativeVelocity = linearVelocityA - linearVelocityB;
 
-                    // Calculate friction impulses (in the tangent and bitangent ddirections):
-                    float2 impulses = contact.SolveFriction(relativeVelocity, material.staticFriction, material.dynamicFriction, substepTime);
+                    // Calculate friction impulses (in the tangent and bitangent directions):
+                    float2 impulses = contact.SolveFriction(effectiveMasses[i].TotalTangentInvMass, effectiveMasses[i].TotalBitangentInvMass, relativeVelocity, material.staticFriction, material.dynamicFriction, substepTime);
 
                     // Apply friction impulses to both particles:
                     if (math.abs(impulses.x) > BurstMath.epsilon || math.abs(impulses.y) > BurstMath.epsilon)
@@ -201,7 +199,7 @@ namespace Obi
                         for (int j = 0; j < simplexSizeA; ++j)
                         {
                             int particleIndex = simplices[simplexStartA + j];
-                            deltas[particleIndex] += (tangentImpulse * contact.tangentInvMassA + bitangentImpulse * contact.bitangentInvMassA) * substepTime * contact.pointA[j] * baryScale;
+                            deltas[particleIndex] += (tangentImpulse * effectiveMasses[i].tangentInvMassA + bitangentImpulse * effectiveMasses[i].bitangentInvMassA) * substepTime * contact.pointA[j] * baryScale;
                             counts[particleIndex]++;
                         }
 
@@ -209,13 +207,16 @@ namespace Obi
                         for (int j = 0; j < simplexSizeB; ++j)
                         {
                             int particleIndex = simplices[simplexStartB + j];
-                            deltas[particleIndex] -= (tangentImpulse * contact.tangentInvMassB + bitangentImpulse * contact.bitangentInvMassB) * substepTime * contact.pointB[j] * baryScale;
+                            deltas[particleIndex] -= (tangentImpulse * effectiveMasses[i].tangentInvMassB + bitangentImpulse * effectiveMasses[i].bitangentInvMassB) * substepTime * contact.pointB[j] * baryScale;
                             counts[particleIndex]++;
                         }
 
                         // Rolling contacts:
                         if (material.rollingContacts > 0)
                         {
+                            float4 invInertiaTensorA = math.rcp(BurstMath.GetParticleInertiaTensor(simplexRadiiA, invRotationalMassA) + new float4(BurstMath.epsilon));
+                            float4 invInertiaTensorB = math.rcp(BurstMath.GetParticleInertiaTensor(simplexRadiiB, invRotationalMassB) + new float4(BurstMath.epsilon));
+
                             // Calculate angular velocity deltas due to friction impulse:
                             float4x4 solverInertiaA = BurstMath.TransformInertiaTensor(invInertiaTensorA, orientationA);
                             float4x4 solverInertiaB = BurstMath.TransformInertiaTensor(invInertiaTensorB, orientationB);
@@ -252,7 +253,7 @@ namespace Obi
 
                             for (int j = 0; j < simplexSizeB; ++j)
                             {
-                                int particleIndex = simplices[simplexStartB+ j];
+                                int particleIndex = simplices[simplexStartB + j];
                                 quaternion qB = orientationDeltas[particleIndex];
                                 qB.value += orientationDeltaB.value;
                                 orientationDeltas[particleIndex] = qB;

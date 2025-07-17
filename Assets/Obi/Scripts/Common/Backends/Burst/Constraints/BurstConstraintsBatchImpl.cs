@@ -24,11 +24,7 @@ namespace Obi
 
         public bool enabled
         {
-            set
-            {
-                if (m_Enabled != value)
-                    m_Enabled = value;
-            }
+            set { m_Enabled = value; }
             get { return m_Enabled; }
         }
 
@@ -50,22 +46,17 @@ namespace Obi
         protected NativeArray<int> particleIndices;
         protected NativeArray<float> lambdas;
 
-        public virtual JobHandle Initialize(JobHandle inputDeps, float substepTime)
+        public virtual JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             if (lambdas.IsCreated)
             {
-                // no need for jobs here, memclear is faster and we don't pay scheduling overhead.
-                unsafe
-                {
-                    UnsafeUtility.MemClear(NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(lambdas),
-                                           lambdas.Length * UnsafeUtility.SizeOf<float>());
-                }
+                inputDeps = new ClearLambdasJob {lambdas = lambdas}.Schedule(lambdas.Length, 256, inputDeps);
             }
             return inputDeps;
         }
 
         // implemented by concrete constraint subclasses.
-        public abstract JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps);
+        public abstract JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft);
         public abstract JobHandle Apply(JobHandle inputDeps, float substepTime);
 
         public virtual void Destroy()
@@ -102,6 +93,16 @@ namespace Obi
 
                 deltas[particleIndex] = new quaternion(0, 0, 0, 0);
                 counts[particleIndex] = 0;
+            }
+        }
+
+        [BurstCompile]
+        public struct ClearLambdasJob : IJobParallelFor
+        {
+            public NativeArray<float> lambdas;
+            public void Execute(int i)
+            {
+                lambdas[i] = 0;
             }
         }
     }

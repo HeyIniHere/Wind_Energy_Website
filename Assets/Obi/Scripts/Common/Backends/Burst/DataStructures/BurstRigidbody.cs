@@ -15,7 +15,7 @@ namespace Obi
         public float4 com;
         public float inverseMass;
 
-        private int pad0;
+        public int constraintCount;
         private int pad1;
         private int pad2;
     }

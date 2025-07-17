@@ -1,9 +1,10 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Runtime.InteropServices;
 
 namespace Obi
 {
-
+    [StructLayout(LayoutKind.Sequential)]
     public struct CollisionMaterial 
     {
         public float dynamicFriction;

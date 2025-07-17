@@ -8,8 +8,8 @@ namespace Obi
     {
         Oni.ConstraintType? GetConstraintType();
 
-        IObiConstraintsBatch GetBatch(int i); 
-        int GetBatchCount();
+        IObiConstraintsBatch GetBatch(int i);
+        int batchCount { get; }
         void Clear();
 
         bool AddToSolver(ObiSolver solver);
@@ -17,6 +17,7 @@ namespace Obi
 
         int GetConstraintCount();
         int GetActiveConstraintCount();
+        void ActivateAllConstraints();
         void DeactivateAllConstraints();
 
         void Merge(ObiActor actor, IObiConstraints other);
@@ -27,6 +28,8 @@ namespace Obi
     {
         [NonSerialized] protected ObiSolver m_Solver;
         [HideInInspector] public List<T> batches = new List<T>();
+
+        public int batchCount { get => batches == null ? 0 : batches.Count; }
 
         // merges constraints from a given actor with this one.
         public void Merge(ObiActor actor, IObiConstraints other)
@@ -42,11 +45,11 @@ namespace Obi
             actor.solverBatchOffsets[constraintType].Clear();
 
             // create new empty batches if needed:
-            int newBatches = Mathf.Max(0, others.GetBatchCount() - GetBatchCount());
+            int newBatches = Mathf.Max(0, others.batchCount - batchCount);
             for (int i = 0;  i < newBatches; ++i)
                 AddBatch(CreateBatch());
 
-            for (int i = 0; i < other.GetBatchCount(); ++i)
+            for (int i = 0; i < other.batchCount; ++i)
             {
                 // store this batch's offset:
                 actor.solverBatchOffsets[constraintType].Add(batches[i].activeConstraintCount);
@@ -62,11 +65,6 @@ namespace Obi
             if (batches != null && i >= 0 && i < batches.Count)
                 return (IObiConstraintsBatch) batches[i];
             return null;
-        }
-
-        public int GetBatchCount()
-        {
-            return batches == null ? 0 : batches.Count;
         }
 
         public int GetConstraintCount()
@@ -99,6 +97,14 @@ namespace Obi
                 foreach (T batch in batches)
                     if (batch != null)
                         batch.DeactivateAllConstraints();
+        }
+
+        public void ActivateAllConstraints()
+        {
+            if (batches != null)
+                foreach (T batch in batches)
+                    if (batch != null)
+                        batch.ActivateAllConstraints();
         }
 
         public T GetFirstBatch()

@@ -10,8 +10,8 @@ namespace Obi
         public Vector4 angularVelocity;
         public Vector4 com;
         public float inverseMass;
-
-        private int pad0;
+         
+        public int constraintCount;
         private int pad1;
         private int pad2;
 
@@ -20,7 +20,7 @@ namespace Obi
             bool kinematic = !Application.isPlaying || rb.unityRigidbody.isKinematic || rb.kinematicForParticles;
 
             //rotation = source.rotation;
-            velocity = rb.kinematicForParticles ? Vector3.zero : rb.linearVelocity;
+            velocity = rb.kinematicForParticles ? Vector3.zero : rb.linearVelocity + (rb.unityRigidbody.useGravity ? Physics.gravity * Time.fixedDeltaTime : Vector3.zero);
             angularVelocity = rb.kinematicForParticles ? Vector3.zero : rb.angularVelocity;
 
             // center of mass in unity is affected by local rotation and position, but not scale. We need it expressed in world space:

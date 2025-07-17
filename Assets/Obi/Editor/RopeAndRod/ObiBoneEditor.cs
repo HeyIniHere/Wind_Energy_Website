@@ -33,6 +33,10 @@ namespace Obi
         SerializedProperty plasticYield;
         SerializedProperty plasticCreep;
 
+        SerializedProperty aerodynamicsEnabled;
+        SerializedProperty drag;
+        SerializedProperty lift;
+
         SerializedProperty fixRoot;
         SerializedProperty stretchBones;
         SerializedProperty ignored;
@@ -69,6 +73,9 @@ namespace Obi
             plasticYield = serializedObject.FindProperty("_plasticYield");
             plasticCreep = serializedObject.FindProperty("_plasticCreep");
 
+            aerodynamicsEnabled = serializedObject.FindProperty("_aerodynamicsEnabled");
+            drag = serializedObject.FindProperty("_drag");
+            lift = serializedObject.FindProperty("_lift");
         }
 
         public void OnDisable()
@@ -142,6 +149,12 @@ namespace Obi
                 EditorGUILayout.PropertyField(bend2Compliance, new GUIContent("Bend compliance Y"));
                 EditorGUILayout.PropertyField(plasticYield, new GUIContent("Plastic yield"));
                 EditorGUILayout.PropertyField(plasticCreep, new GUIContent("Plastic creep"));
+            });
+
+            ObiEditorUtils.DoToggleablePropertyGroup(aerodynamicsEnabled, new GUIContent("Aerodynamics", Resources.Load<Texture2D>("Icons/ObiAerodynamicConstraints Icon")),
+            () => {
+                EditorGUILayout.PropertyField(drag, new GUIContent("Drag"));
+                EditorGUILayout.PropertyField(lift, new GUIContent("Lift"));
             });
 
             if (GUI.changed)

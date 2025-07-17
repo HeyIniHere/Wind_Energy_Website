@@ -5,10 +5,12 @@ using UnityEngine;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using System.Collections;
+using UnityEngine.Rendering;
+using System.Linq;
 
 namespace Obi
 {
-    public unsafe abstract class ObiNativeList<T> : IEnumerable<T>, IDisposable, ISerializationCallbackReceiver where T : struct
+    public unsafe class ObiNativeList<T> : IEnumerable<T>, IDisposable, ISerializationCallbackReceiver where T : struct
     {
         public T[] serializedContents;
         protected void* m_AlignedPtr = null;
@@ -21,7 +23,13 @@ namespace Obi
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         protected AtomicSafetyHandle m_SafetyHandle;
 #endif
-        protected ComputeBuffer m_ComputeBuffer;
+
+        protected GraphicsBuffer.Target m_ComputeBufferType;
+        protected GraphicsBuffer m_ComputeBuffer;
+        protected GraphicsBuffer m_CountBuffer; // used to hold the counter value in case m_ComputeBufferType is Counter.
+        protected bool computeBufferDirty = false;
+        protected AsyncGPUReadbackRequest m_AsyncRequest;
+        protected AsyncGPUReadbackRequest m_CounterAsyncRequest;
 
         public int count
         {
@@ -33,6 +41,9 @@ namespace Obi
                     // we first ensure we can hold the previous count, and then set the new one.
                     EnsureCapacity(m_Count);
                     m_Count = Mathf.Min(m_Capacity, value);
+
+                    if (m_ComputeBuffer != null && m_ComputeBuffer.IsValid() && m_ComputeBufferType == GraphicsBuffer.Target.Counter)
+                        m_ComputeBuffer.SetCounterValue((uint)m_Count);
                 }
             }
             get { return m_Count; }
@@ -40,12 +51,12 @@ namespace Obi
 
         public int capacity
         {
-            set
-            {
-                if (value != m_Capacity)
-                    ChangeCapacity(value);
-            }
             get { return m_Capacity; }
+        }
+
+        public int stride
+        {
+            get { return m_Stride; }
         }
 
         public bool isCreated
@@ -53,24 +64,48 @@ namespace Obi
             get { return m_AlignedPtr != null; }
         }
 
+        public bool noReadbackInFlight
+        {
+            get { return m_AsyncRequest.done && (m_ComputeBufferType != GraphicsBuffer.Target.Counter || m_CounterAsyncRequest.done); }
+        }
+
+        // Returns the current compute buffer representation of this list. Will return null if AsComputeBuffer() hasn't been called yet,
+        // or if the list has been disposed of.
+        public GraphicsBuffer computeBuffer
+        {
+            get { return m_ComputeBuffer; }
+        }
+
         public T this[int index]
         {
             get
             {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (index < 0 || index >= m_Capacity)
+                {
+                    throw new IndexOutOfRangeException($"Reading from index {index} is out of range of '{m_Capacity}' Capacity.");
+                }
+#endif
                 return UnsafeUtility.ReadArrayElementWithStride<T>(m_AlignedPtr, index, m_Stride);
             }
             set
             {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (index < 0 || index >= m_Capacity)
+                {
+                    throw new IndexOutOfRangeException($"Writing to index {index} is out of range of '{m_Capacity}' Capacity.");
+                }
+#endif
                 UnsafeUtility.WriteArrayElementWithStride<T>(m_AlignedPtr, index, m_Stride, value);
-
-                if (m_ComputeBuffer != null)
-                    m_ComputeBuffer.SetData(AsNativeArray<T>(), index, index, 1);
+                computeBufferDirty = true;
             }
         }
 
         // Declare parameterless constructor, called by Unity upon deserialization.
         protected ObiNativeList()
         {
+            m_Stride = UnsafeUtility.SizeOf<T>();
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             m_SafetyHandle = AtomicSafetyHandle.Create();
 #endif
@@ -78,6 +113,8 @@ namespace Obi
 
         public ObiNativeList(int capacity = 8, int alignment = 16)
         {
+            m_Stride = UnsafeUtility.SizeOf<T>();
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             m_SafetyHandle = AtomicSafetyHandle.Create();
 #endif
@@ -92,29 +129,46 @@ namespace Obi
 
         protected void Dispose(bool disposing)
         {
+            DisposeOfComputeBuffer();
+
             if (isCreated)
             {
-
-                // dispose of compuse buffer representation:
-                if (m_ComputeBuffer != null)
-                {
-                    m_ComputeBuffer.Dispose();
-                }
-
                 // free unmanaged memory buffer:
                 UnsafeUtility.Free(m_AlignedPtr, Allocator.Persistent);
                 m_AlignedPtr = null;
-            }
+                m_Count = m_Capacity = 0;
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-            // dispose of atomic safety handle:
-            AtomicSafetyHandle.CheckDeallocateAndThrow(m_SafetyHandle);
-            AtomicSafetyHandle.Release(m_SafetyHandle);
+                // dispose of atomic safety handle:
+                AtomicSafetyHandle.CheckDeallocateAndThrow(m_SafetyHandle);
+                AtomicSafetyHandle.Release(m_SafetyHandle);
 #endif
+            }
         }
 
         public void Dispose()
         {
             Dispose(true);
+        }
+
+        public void DisposeOfComputeBuffer()
+        {
+            // dispose of compute buffer representation:
+            if (m_ComputeBuffer != null)
+            {
+                // if there's any pending async readback, finalize it.
+                // otherwise we pull the rug from under the readbacks' feet and that's no good.
+                WaitForReadback();
+
+                m_ComputeBuffer.Dispose();
+                m_ComputeBuffer = null;
+            }
+
+            if (m_CountBuffer != null)
+            {
+                m_CountBuffer.Dispose();
+                m_CountBuffer = null;
+            }
         }
 
         public void OnBeforeSerialize()
@@ -161,38 +215,144 @@ namespace Obi
             return AsNativeArray<U>(m_Count);
         }
 
-        // Reinterprets the data in the list as a native array.
+        public NativeArray<T> AsNativeArray()
+        {
+            return AsNativeArray<T>(m_Count);
+        }
+
+        // Reinterprets the data in the list as a native array of the given length, up to the list's capacity.
         public NativeArray<U> AsNativeArray<U>(int arrayLength) where U : struct
         {
             unsafe
             {
-                NativeArray<U> array = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<U>(m_AlignedPtr, arrayLength, Allocator.None);
+                NativeArray<U> array = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<U>(m_AlignedPtr, Mathf.Min(arrayLength, m_Capacity), Allocator.None);
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref array, m_SafetyHandle);
 #endif
+                // assume the NativeArray will write new data, so we'll need to update the computeBuffer upon Upload().
+                computeBufferDirty = true;
                 return array;
             }
         }
 
-        // Reinterprets the data in the list as a compute buffer. Note: This also calls AsNativeArray() internally, to be able to pass the raw pointer to the compute buffer 
-        public ComputeBuffer AsComputeBuffer<U>() where U : struct
+        // Reinterprets the data in the list as a compute buffer, in case of an empty list it returns a buffer of size 1 with uninitialized content.
+        public GraphicsBuffer SafeAsComputeBuffer<U>(GraphicsBuffer.Target bufferType = GraphicsBuffer.Target.Structured) where U : struct
         {
-            if (m_ComputeBuffer != null)
-            {
-                m_ComputeBuffer.Dispose();
-            }
+            return AsComputeBuffer<U>(Mathf.Max(1,m_Count), bufferType);
+        }
 
-            m_ComputeBuffer = new ComputeBuffer(m_Count, m_Stride);
-            m_ComputeBuffer.SetData(AsNativeArray<U>());
-            return m_ComputeBuffer;
+        // Reinterprets the data in the list as a compute buffer.
+        public GraphicsBuffer AsComputeBuffer<U>(GraphicsBuffer.Target bufferType = GraphicsBuffer.Target.Structured) where U : struct
+        {
+            return AsComputeBuffer<U>(m_Count, bufferType);
+        }
+
+        // Reinterprets the data in the list as a compute buffer of the given length. Returns null if the list is empty.
+        public GraphicsBuffer AsComputeBuffer<U>(int arrayLength, GraphicsBuffer.Target bufferType = GraphicsBuffer.Target.Structured) where U : struct
+        {
+            DisposeOfComputeBuffer();
+
+            if (arrayLength > 0)
+            {
+                m_ComputeBufferType = bufferType;
+                m_ComputeBuffer = new GraphicsBuffer(bufferType, arrayLength, UnsafeUtility.SizeOf<U>());
+                m_ComputeBuffer.SetData(AsNativeArray<U>(arrayLength));
+
+                if (bufferType == GraphicsBuffer.Target.Counter)
+                {
+                    // initialize count to zero, since counter buffers always start empty:
+                    m_Count = 0;
+                    m_ComputeBuffer.SetCounterValue((uint)m_Count);
+                    m_CountBuffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, 4);
+                    GraphicsBuffer.CopyCount(m_ComputeBuffer, m_CountBuffer, 0);
+                }
+
+                return m_ComputeBuffer;
+            }
+            return null;
+        }
+
+        // Kicks a GPU readback request, to bring compute buffer data to this list.
+        public void Readback<U>(int readcount, bool async) where U : struct
+        {
+            if (m_ComputeBuffer != null && m_ComputeBuffer.IsValid() && noReadbackInFlight)
+            {
+                var nativeArray = AsNativeArray<U>(readcount);
+
+                // When using SafeAsComputeBuffer, we'll get a compute buffer of size 1 even if the list (and the NativeArray) is empty.
+                // Guard against trying to readback into a smaller NativeArray. Also guard against requesting zero items.
+                if (nativeArray.Length >= readcount && readcount > 0)
+                    m_AsyncRequest = AsyncGPUReadback.RequestIntoNativeArray(ref nativeArray, m_ComputeBuffer, readcount * UnsafeUtility.SizeOf<U>(), 0);
+
+                // For counter buffers, request the counter value too:
+                if (m_ComputeBufferType == GraphicsBuffer.Target.Counter)
+                {
+                    GraphicsBuffer.CopyCount(m_ComputeBuffer, m_CountBuffer, 0);
+                    m_CounterAsyncRequest = AsyncGPUReadback.Request(m_CountBuffer, m_CountBuffer.stride, 0, (AsyncGPUReadbackRequest request)=>
+                    {
+                        if (!request.hasError)
+                            m_Count = Mathf.Min(m_Capacity, request.GetData<int>()[0]);
+                    });
+                }
+
+                if (!async)
+                    WaitForReadback();
+            }
+        }
+
+        public void Readback(bool async = true)
+        {
+            // On counter buffers, we shouldn't read data up to m_Count and then update m_Count with the compute buffer's counter value *afterwards*.
+            // This would lead to reading back less data than we should, so we need to request the entire compute buffer.
+            if (m_ComputeBuffer != null)
+                Readback<T>(m_ComputeBuffer.count, async);
+        }
+
+        public void Readback(int readcount ,bool async = true)
+        {
+            Readback<T>(readcount, async);
+        }
+
+        // Makes sure any pending changes by the CPU are sent to the GPU. 
+        // If the list data has been changed on the CPU since the last time Unmap() was called and there's a compute buffer associated to it,
+        // will write the current contents of the list to the compute buffer.
+        public void Upload<U>(int length, bool force = false) where U : struct
+        {
+            if ((computeBufferDirty || force) && m_ComputeBuffer != null && m_ComputeBuffer.IsValid())
+                m_ComputeBuffer.SetData(AsNativeArray<U>(length));
+
+            computeBufferDirty = false;
+        }
+
+        public void Upload(bool force = false)
+        {
+            Upload<T>(m_Count,force);
+        }
+
+        public void UploadFullCapacity()
+        {
+            Upload<T>(m_Capacity, true);
+        }
+
+        // Waits for the last readback request to be complete, this brings back data from the GPU to the CPU:
+        public void WaitForReadback()
+        {
+            if (isCreated)
+            {
+                m_AsyncRequest.WaitForCompletion();
+                m_CounterAsyncRequest.WaitForCompletion();
+            }
         }
 
         protected void ChangeCapacity(int newCapacity)
         {
+            // invalidate compute buffer:
+            DisposeOfComputeBuffer();
+
             // allocate a new buffer:
             m_Stride = UnsafeUtility.SizeOf<T>();
-            var newAlignedPtr = UnsafeUtility.Malloc(newCapacity * m_Stride, 16, Allocator.Persistent);
+            var newAlignedPtr = UnsafeUtility.Malloc(newCapacity * m_Stride, m_AlignBytes, Allocator.Persistent);
 
             // if there was a previous allocation:
             if (isCreated)
@@ -249,7 +409,45 @@ namespace Obi
             void* sourceAddress = source.AddressOfElement(sourceIndex);
             void* destAddress = AddressOfElement(destIndex);
             UnsafeUtility.MemCpy(destAddress, sourceAddress, length * m_Stride);
+        }
 
+        public void CopyFrom<U>(NativeArray<U> source, int sourceIndex, int destIndex, int length) where U : struct
+        {
+            if (!isCreated || !source.IsCreated || UnsafeUtility.SizeOf<U>() != m_Stride)
+                throw new ArgumentNullException();
+
+            if (length <= 0 || source.Length == 0)
+                return;
+
+            if (sourceIndex >= source.Length || sourceIndex < 0 || destIndex >= m_Count || destIndex < 0 ||
+                sourceIndex + length > source.Length || destIndex + length > m_Count)
+                throw new ArgumentOutOfRangeException();
+
+            void* sourceAddress = (byte*)source.GetUnsafePtr() + sourceIndex * m_Stride;
+            void* destAddress = AddressOfElement(destIndex);
+            UnsafeUtility.MemCpy(destAddress, sourceAddress, length * m_Stride);
+        }
+
+        public void CopyFrom(T[] source, int sourceIndex, int destIndex, int length)
+        {
+            if (source == null || !isCreated)
+                throw new ArgumentNullException();
+
+            if (length <= 0 || source.Length == 0)
+                return;
+
+            if (sourceIndex < 0 || destIndex < 0 ||
+                sourceIndex + length > source.Length || destIndex + length > m_Count)
+                throw new ArgumentOutOfRangeException();
+
+            // pin the managed array and get its address:
+            ulong sourceHandle;
+            void* sourceAddress = UnsafeUtility.PinGCArrayAndGetDataAddress(source, out sourceHandle);
+            void* destAddress = UnsafeUtility.AddressOf(ref UnsafeUtility.ArrayElementAsRef<T>(m_AlignedPtr, destIndex));
+            UnsafeUtility.MemCpy(destAddress, sourceAddress, length * m_Stride);
+
+            // unpin the managed array:
+            UnsafeUtility.ReleaseGCObject(sourceHandle);
         }
 
         public void CopyReplicate(T value, int destIndex, int length)
@@ -293,7 +491,51 @@ namespace Obi
         public void Add(T item)
         {
             EnsureCapacity(m_Count + 1);
+            computeBufferDirty = true;
             this[m_Count++] = item;
+        }
+
+        public void AddReplicate(T value, int times)
+        {
+            int appendAt = m_Count;
+            ResizeUninitialized(m_Count + times);
+            CopyReplicate(value, appendAt, times);
+        }
+
+        public void AddRange(T[] array)
+        {
+            AddRange(array, array.Length);
+        }
+
+        public void AddRange(T[] array, int length)
+        {
+            AddRange(array, 0, length);
+        }
+
+        public void AddRange(T[] array, int start, int length)
+        {
+            int appendAt = m_Count;
+            ResizeUninitialized(m_Count + length);
+            CopyFrom(array, start, appendAt, length);
+        }
+
+        public void AddRange(ObiNativeList<T> array, int length)
+        {
+            int appendAt = m_Count;
+            ResizeUninitialized(m_Count + length);
+            CopyFrom(array, 0, appendAt, length);
+        }
+
+        public void AddRange(ObiNativeList<T> array, int start, int length)
+        {
+            int appendAt = m_Count;
+            ResizeUninitialized(m_Count + length);
+            CopyFrom(array, start, appendAt, length);
+        }
+
+        public void AddRange(ObiNativeList<T> array)
+        {
+            AddRange(array, array.count);
         }
 
         public void AddRange(IEnumerable<T> enumerable)
@@ -343,7 +585,9 @@ namespace Obi
         {
             newCount = Mathf.Max(0, newCount);
             bool realloc = EnsureCapacity(newCount);
+
             m_Count = newCount;
+
             return realloc;
         }
 
@@ -381,7 +625,25 @@ namespace Obi
             unsafe
             {
                 if (isCreated)
+                {
                     UnsafeUtility.MemClear(m_AlignedPtr, count * m_Stride);
+
+                    computeBufferDirty = true;
+                }
+            }
+        }
+
+        public void WipeToValue(T value)
+        {
+            unsafe
+            {
+                if (isCreated)
+                {
+                    void* sourceAddress = UnsafeUtility.AddressOf(ref value);
+                    UnsafeUtility.MemCpyReplicate(m_AlignedPtr, sourceAddress, m_Stride, count);
+
+                    computeBufferDirty = true;
+                }
             }
         }
 
@@ -403,8 +665,12 @@ namespace Obi
 
         public void* AddressOfElement(int index)
         {
-            // UnsafeUtility.AddressOf(ref UnsafeUtilityEx.ArrayElementAsRef<T>(m_AlignedPtr, m_Count));
             return (void*) ((byte*)m_AlignedPtr + m_Stride * index);
+        }
+
+        public NativeReference<int> GetCountReference(Allocator alloc)
+        {
+            return new NativeReference<int>(m_Count, alloc);
         }
 
         public IntPtr GetIntPtr()

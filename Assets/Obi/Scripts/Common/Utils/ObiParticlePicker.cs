@@ -63,13 +63,13 @@ namespace Obi
                     Matrix4x4 solver2World = solver.transform.localToWorldMatrix;
 
                     // Find the closest particle hit by the ray:
-                    for (int i = 0; i < solver.renderablePositions.count; ++i)
+                    for (int i = 0; i < solver.positions.count; ++i)
                     {
 
-                        Vector3 worldPos = solver2World.MultiplyPoint3x4(solver.renderablePositions[i]);
+                        Vector3 worldPos = solver2World.MultiplyPoint3x4(solver.positions[i]);
 
                         float mu;
-                        Vector3 projected = ObiUtils.ProjectPointLine(worldPos, ray.origin, ray.origin + ray.direction, out mu, false);
+                        Vector3 projected = ObiUtils.ProjectPointLine(ray.origin, ray.origin + ray.direction, worldPos, out mu, false);
                         float distanceToRay = Vector3.SqrMagnitude(worldPos - projected);
 
                         // Disregard particles behind the camera:
@@ -88,7 +88,7 @@ namespace Obi
                     if (pickedParticleIndex >= 0)
                     {
 
-                        pickedParticleDepth = Camera.main.transform.InverseTransformVector(solver2World.MultiplyPoint3x4(solver.renderablePositions[pickedParticleIndex]) - Camera.main.transform.position).z;
+                        pickedParticleDepth = Camera.main.transform.InverseTransformVector(solver2World.MultiplyPoint3x4(solver.positions[pickedParticleIndex]) - Camera.main.transform.position).z;
 
                         if (OnParticlePicked != null)
                         {

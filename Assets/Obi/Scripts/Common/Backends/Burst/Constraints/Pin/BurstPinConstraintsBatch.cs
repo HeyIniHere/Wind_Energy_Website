@@ -6,6 +6,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Unity.Burst;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Obi
 {
@@ -33,7 +34,29 @@ namespace Obi
             m_ConstraintCount = count;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
+        {
+            var clearPins = new ClearPinsJob
+            {
+                colliderIndices = colliderIndices,
+                shapes = ObiColliderWorld.GetInstance().colliderShapes.AsNativeArray<BurstColliderShape>(),
+                rigidbodies = ObiColliderWorld.GetInstance().rigidbodies.AsNativeArray<BurstRigidbody>(),
+            };
+            inputDeps = clearPins.Schedule(m_ConstraintCount, 128, inputDeps);
+
+            var updatePins = new UpdatePinsJob
+            {
+                colliderIndices = colliderIndices,
+                shapes = ObiColliderWorld.GetInstance().colliderShapes.AsNativeArray<BurstColliderShape>(),
+                rigidbodies = ObiColliderWorld.GetInstance().rigidbodies.AsNativeArray<BurstRigidbody>(),
+            };
+            inputDeps = updatePins.Schedule(m_ConstraintCount, 128, inputDeps);
+
+            // clear lambdas:
+            return base.Initialize(inputDeps, stepTime, substepTime, steps, timeLeft);
+        }
+
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var projectConstraints = new PinConstraintsBatchJob()
             {
@@ -63,12 +86,13 @@ namespace Obi
 
                 inertialFrame = ((BurstSolverImpl)constraints.solver).inertialFrame,
                 stepTime = stepTime,
+                steps = steps,
                 substepTime = substepTime,
-                substeps = substeps,
+                timeLeft = timeLeft,
                 activeConstraintCount = m_ConstraintCount
             };
 
-            return projectConstraints.Schedule(inputDeps);
+            return projectConstraints.Schedule(m_ConstraintCount, 16, inputDeps);
         }
 
         public override JobHandle Apply(JobHandle inputDeps, float substepTime)
@@ -94,8 +118,78 @@ namespace Obi
             return applyConstraints.Schedule(inputDeps);
         }
 
+        public JobHandle ProjectRenderablePositions(JobHandle inputDeps)
+        {
+            var project = new ProjectRenderablePositionsJob()
+            {
+                particleIndices = particleIndices,
+                colliderIndices = colliderIndices,
+                offsets = offsets,
+                stiffnesses = stiffnesses,
+                restDarboux = restDarbouxVectors,
+
+                transforms = ObiColliderWorld.GetInstance().colliderTransforms.AsNativeArray<BurstAffineTransform>(),
+
+                renderablePositions = solverImplementation.renderablePositions,
+                renderableOrientations = solverImplementation.renderableOrientations,
+
+                inertialFrame = ((BurstSolverImpl)constraints.solver).inertialFrame,
+            };
+
+            return project.Schedule(m_ConstraintCount, 16, inputDeps);
+        }
+
         [BurstCompile]
-        public unsafe struct PinConstraintsBatchJob : IJob
+        public unsafe struct ClearPinsJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<int> colliderIndices;
+            [ReadOnly] public NativeArray<BurstColliderShape> shapes;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<BurstRigidbody> rigidbodies;
+
+            public void Execute(int i)
+            {
+                int colliderIndex = colliderIndices[i];
+
+                // no collider to pin to, so ignore the constraint.
+                if (colliderIndex < 0)
+                    return;
+
+                int rigidbodyIndex = shapes[colliderIndex].rigidbodyIndex;
+                if (rigidbodyIndex >= 0)
+                {
+                    BurstRigidbody* arr = (BurstRigidbody*)rigidbodies.GetUnsafePtr();
+                    Interlocked.Exchange(ref arr[rigidbodyIndex].constraintCount, 0);
+                }
+            }
+        }
+
+        [BurstCompile]
+        public unsafe struct UpdatePinsJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<int> colliderIndices;
+            [ReadOnly] public NativeArray<BurstColliderShape> shapes;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<BurstRigidbody> rigidbodies;
+
+            public void Execute(int i)
+            {
+                int colliderIndex = colliderIndices[i];
+
+                // no collider to pin to, so ignore the constraint.
+                if (colliderIndex < 0)
+                    return;
+
+                // Increment the amount of constraints affecting this rigidbody for mass splitting:
+                int rigidbodyIndex = shapes[colliderIndex].rigidbodyIndex;
+                if (rigidbodyIndex >= 0)
+                {
+                    BurstRigidbody* arr = (BurstRigidbody*)rigidbodies.GetUnsafePtr();
+                    Interlocked.Increment(ref arr[rigidbodyIndex].constraintCount);
+                }
+            }
+        }
+
+        [BurstCompile]
+        public unsafe struct PinConstraintsBatchJob : IJobParallelFor
         {
             [ReadOnly] public NativeArray<int> particleIndices;
             [ReadOnly] public NativeArray<int> colliderIndices;
@@ -103,7 +197,7 @@ namespace Obi
             [ReadOnly] public NativeArray<float4> offsets;
             [ReadOnly] public NativeArray<float2> stiffnesses;
             [ReadOnly] public NativeArray<quaternion> restDarboux;
-            public NativeArray<float4> lambdas;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> lambdas;
 
             [ReadOnly] public NativeArray<float4> positions;
             [ReadOnly] public NativeArray<float4> prevPositions;
@@ -114,8 +208,8 @@ namespace Obi
             [ReadOnly] public NativeArray<BurstColliderShape> shapes;
             [ReadOnly] public NativeArray<BurstAffineTransform> transforms;
             [ReadOnly] public NativeArray<BurstRigidbody> rigidbodies;
-            public NativeArray<float4> rigidbodyLinearDeltas;
-            public NativeArray<float4> rigidbodyAngularDeltas;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> rigidbodyLinearDeltas;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> rigidbodyAngularDeltas;
 
             [NativeDisableContainerSafetyRestriction][NativeDisableParallelForRestriction] public NativeArray<float4> deltas;
             [NativeDisableContainerSafetyRestriction][NativeDisableParallelForRestriction] public NativeArray<int> counts;
@@ -125,112 +219,113 @@ namespace Obi
             [ReadOnly] public BurstInertialFrame inertialFrame;
             [ReadOnly] public float stepTime;
             [ReadOnly] public float substepTime;
-            [ReadOnly] public int substeps;
+            [ReadOnly] public float timeLeft;
+            [ReadOnly] public int steps;
             [ReadOnly] public int activeConstraintCount;
 
-            public void Execute()
+            public void Execute(int i)
             {
-                for (int i = 0; i < activeConstraintCount; ++i)
+                int particleIndex = particleIndices[i];
+                int colliderIndex = colliderIndices[i];
+
+                // no collider to pin to, so ignore the constraint.
+                if (colliderIndex < 0)
+                    return;
+
+                int rigidbodyIndex = shapes[colliderIndex].rigidbodyIndex;
+
+                float frameEnd = stepTime * steps;
+                float substepsToEnd = timeLeft / substepTime;
+
+                // calculate time adjusted compliances
+                float2 compliances = stiffnesses[i].xy / (substepTime * substepTime);
+
+                // project particle position to the end of the full step:
+                float4 particlePosition = math.lerp(prevPositions[particleIndex], positions[particleIndex], substepsToEnd);
+
+                // express pin offset in world space:
+                float4 worldPinOffset = transforms[colliderIndex].TransformPoint(offsets[i]);
+                float4 predictedPinOffset = worldPinOffset;
+                quaternion predictedRotation = transforms[colliderIndex].rotation;
+
+                float rigidbodyLinearW = 0;
+                float rigidbodyAngularW = 0;
+
+                if (rigidbodyIndex >= 0)
                 {
-                    int particleIndex = particleIndices[i];
-                    int colliderIndex = colliderIndices[i];
+                    var rigidbody = rigidbodies[rigidbodyIndex];
 
-                    // no collider to pin to, so ignore the constraint.
-                    if (colliderIndex < 0)
-                        continue;
+                    // predict offset point position using rb velocity at that point (can't integrate transform since position != center of mass)
+                    float4 velocityAtPoint = BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, inertialFrame.frame.InverseTransformPoint(worldPinOffset), rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame);
+                    predictedPinOffset = BurstIntegration.IntegrateLinear(predictedPinOffset, inertialFrame.frame.TransformVector(velocityAtPoint), frameEnd);
 
-                    int rigidbodyIndex = shapes[colliderIndex].rigidbodyIndex;
+                    // predict rotation at the end of the step:
+                    predictedRotation = BurstIntegration.IntegrateAngular(predictedRotation, rigidbody.angularVelocity + rigidbodyAngularDeltas[rigidbodyIndex], stepTime);
 
-                    // calculate time adjusted compliances
-                    float2 compliances = stiffnesses[i].xy / (substepTime * substepTime);
+                    // calculate linear and angular rigidbody effective masses (mass splitting: multiply by constraint count)
+                    rigidbodyLinearW = rigidbody.inverseMass * rigidbody.constraintCount;
+                    rigidbodyAngularW = BurstMath.RotationalInvMass(rigidbody.inverseInertiaTensor,
+                                                                    worldPinOffset - rigidbody.com,
+                                                                    math.normalizesafe(inertialFrame.frame.TransformPoint(particlePosition) - predictedPinOffset)) * rigidbody.constraintCount;
 
-                    // project particle position to the end of the full step:
-                    float4 particlePosition = math.lerp(prevPositions[particleIndex], positions[particleIndex], substeps);
-
-                    // express pin offset in world space:
-                    float4 worldPinOffset = transforms[colliderIndex].TransformPoint(offsets[i]);
-                    float4 predictedPinOffset = worldPinOffset;
-                    quaternion predictedRotation = transforms[colliderIndex].rotation;
-
-                    float rigidbodyLinearW = 0;
-                    float rigidbodyAngularW = 0;
-
-                    if (rigidbodyIndex >= 0)
-                    {
-                        var rigidbody = rigidbodies[rigidbodyIndex];
-
-                        // predict offset point position:
-                        float4 velocityAtPoint = BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, inertialFrame.frame.InverseTransformPoint(worldPinOffset), rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
-                        predictedPinOffset = BurstIntegration.IntegrateLinear(predictedPinOffset, inertialFrame.frame.TransformVector(velocityAtPoint), stepTime);
-
-                        // predict rotation at the end of the step:
-                        predictedRotation = BurstIntegration.IntegrateAngular(predictedRotation, rigidbody.angularVelocity + rigidbodyAngularDeltas[rigidbodyIndex], stepTime);
-
-                        // calculate linear and angular rigidbody weights:
-                        rigidbodyLinearW = rigidbody.inverseMass;
-                        rigidbodyAngularW = BurstMath.RotationalInvMass(rigidbody.inverseInertiaTensor,
-                                                                        worldPinOffset - rigidbody.com,
-                                                                        math.normalizesafe(inertialFrame.frame.TransformPoint(particlePosition) - predictedPinOffset));
-
-                    }
-
-                    // Transform pin position to solver space for constraint solving:
-                    predictedPinOffset = inertialFrame.frame.InverseTransformPoint(predictedPinOffset);
-                    predictedRotation = math.mul(math.conjugate(inertialFrame.frame.rotation), predictedRotation);
-
-                    float4 gradient = particlePosition - predictedPinOffset;
-                    float constraint = math.length(gradient);
-                    float4 gradientDir = gradient / (constraint + BurstMath.epsilon);
-
-                    float4 lambda = lambdas[i];
-                    float linearDLambda = (-constraint - compliances.x * lambda.w) / (invMasses[particleIndex] + rigidbodyLinearW + rigidbodyAngularW + compliances.x + BurstMath.epsilon);
-                    lambda.w += linearDLambda;
-                    float4 correction = linearDLambda * gradientDir;
-
-                    deltas[particleIndex] += correction * invMasses[particleIndex] / substeps;
-                    counts[particleIndex]++;
-
-                    if (rigidbodyIndex >= 0)
-                    {
-                        BurstMath.ApplyImpulse(rigidbodyIndex,
-                                               -correction / stepTime * 1,
-                                               inertialFrame.frame.InverseTransformPoint(worldPinOffset),
-                                               rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
-                    }
-
-                    if (rigidbodyAngularW > 0 || invRotationalMasses[particleIndex] > 0)
-                    {
-                        // bend/twist constraint:
-                        quaternion omega = math.mul(math.conjugate(orientations[particleIndex]), predictedRotation);   //darboux vector
-
-                        quaternion omega_plus;
-                        omega_plus.value = omega.value + restDarboux[i].value;  //delta Omega with - omega_0
-                        omega.value -= restDarboux[i].value;                    //delta Omega with + omega_0
-                        if (math.lengthsq(omega.value) > math.lengthsq(omega_plus.value))
-                            omega = omega_plus;
-
-                        float3 dlambda = (omega.value.xyz - compliances.y * lambda.xyz) / new float3(compliances.y + invRotationalMasses[particleIndex] + rigidbodyAngularW + BurstMath.epsilon);
-                        lambda.xyz += dlambda;
-
-                        //discrete Darboux vector does not have vanishing scalar part
-                        quaternion dlambdaQ = new quaternion(dlambda[0], dlambda[1], dlambda[2], 0);
-
-                        quaternion orientDelta = orientationDeltas[particleIndex];
-                        orientDelta.value += math.mul(predictedRotation, dlambdaQ).value * invRotationalMasses[particleIndex] / substeps;
-                        orientationDeltas[particleIndex] = orientDelta;
-                        orientationCounts[particleIndex]++;
-
-                        if (rigidbodyIndex >= 0)
-                        {
-                            BurstMath.ApplyDeltaQuaternion(rigidbodyIndex,
-                                                            predictedRotation,
-                                                            -math.mul(orientations[particleIndex], dlambdaQ).value * rigidbodyAngularW,
-                                                            rigidbodyAngularDeltas, inertialFrame.frame, stepTime);
-                        }
-                    }
-
-                    lambdas[i] = lambda;
                 }
+
+                // Transform pin position to solver space for constraint solving:
+                predictedPinOffset = inertialFrame.frame.InverseTransformPoint(predictedPinOffset);
+                predictedRotation = math.mul(math.conjugate(inertialFrame.frame.rotation), predictedRotation);
+
+                float4 gradient = particlePosition - predictedPinOffset;
+                float constraint = math.length(gradient);
+                float4 gradientDir = gradient / (constraint + BurstMath.epsilon);
+
+                float4 lambda = lambdas[i];
+                float linearDLambda = (-constraint - compliances.x * lambda.w) / (invMasses[particleIndex] + rigidbodyLinearW + rigidbodyAngularW + compliances.x + BurstMath.epsilon);
+                lambda.w += linearDLambda;
+                float4 correction = linearDLambda * gradientDir;
+
+                deltas[particleIndex] += correction * invMasses[particleIndex] / substepsToEnd;
+                counts[particleIndex]++;
+
+                if (rigidbodyIndex >= 0)
+                {
+                    BurstMath.ApplyImpulse(rigidbodyIndex,
+                                            -correction / frameEnd,
+                                            inertialFrame.frame.InverseTransformPoint(worldPinOffset),
+                                            rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
+                }
+                     
+                if (rigidbodyAngularW > 0 || invRotationalMasses[particleIndex] > 0)
+                {
+                    // bend/twist constraint:
+                    quaternion omega = math.mul(math.conjugate(orientations[particleIndex]), predictedRotation);   //darboux vector
+
+                    quaternion omega_plus;
+                    omega_plus.value = omega.value + restDarboux[i].value;  //delta Omega with - omega_0
+                    omega.value -= restDarboux[i].value;                    //delta Omega with + omega_0
+                    if (math.lengthsq(omega.value) > math.lengthsq(omega_plus.value))
+                        omega = omega_plus;
+
+                    float3 dlambda = (omega.value.xyz - compliances.y * lambda.xyz) / (compliances.y + invRotationalMasses[particleIndex] + rigidbodyAngularW + BurstMath.epsilon);
+                    lambda.xyz += dlambda;
+
+                    //discrete Darboux vector does not have vanishing scalar part
+                    quaternion dlambdaQ = new quaternion(dlambda[0], dlambda[1], dlambda[2], 0);
+
+                    quaternion orientDelta = orientationDeltas[particleIndex];
+                    orientDelta.value += math.mul(predictedRotation, dlambdaQ).value * invRotationalMasses[particleIndex] / substepsToEnd;
+                    orientationDeltas[particleIndex] = orientDelta;
+                    orientationCounts[particleIndex]++;
+
+                    if (rigidbodyIndex >= 0)
+                    {
+                        BurstMath.ApplyDeltaQuaternion(rigidbodyIndex,
+                                                        predictedRotation,
+                                                        -math.mul(orientations[particleIndex], dlambdaQ).value * rigidbodyAngularW,
+                                                        rigidbodyAngularDeltas, inertialFrame.frame, frameEnd);
+                    }
+                }
+
+                lambdas[i] = lambda;
             }
         }
 
@@ -273,6 +368,40 @@ namespace Obi
                         orientationCounts[p1] = 0;
                     }
                 }
+            }
+        }
+
+        [BurstCompile]
+        public struct ProjectRenderablePositionsJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<int> particleIndices;
+            [ReadOnly] public NativeArray<int> colliderIndices;
+
+            [ReadOnly] public NativeArray<float4> offsets;
+            [ReadOnly] public NativeArray<float2> stiffnesses;
+            [ReadOnly] public NativeArray<quaternion> restDarboux;
+
+            [ReadOnly] public NativeArray<BurstAffineTransform> transforms;
+
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<float4> renderablePositions;
+            [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<quaternion> renderableOrientations;
+
+            [ReadOnly] public BurstInertialFrame inertialFrame;
+
+            public void Execute(int i)
+            {
+                int particleIndex = particleIndices[i];
+                int colliderIndex = colliderIndices[i];
+
+                // no collider to pin to or projection deactivated, so ignore the constraint.
+                if (colliderIndex < 0 || offsets[i].w < 0.5f)
+                    return;
+
+                BurstAffineTransform attachmentMatrix = inertialFrame.frame.Inverse() * transforms[colliderIndex];
+
+                renderablePositions[particleIndex] = attachmentMatrix.TransformPoint(offsets[i]);
+                if (stiffnesses[i].y < 10000)
+                    renderableOrientations[particleIndex] = math.mul(attachmentMatrix.rotation, restDarboux[i]);
             }
         }
     }

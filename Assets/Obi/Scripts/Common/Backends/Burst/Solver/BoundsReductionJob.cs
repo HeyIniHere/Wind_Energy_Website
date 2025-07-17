@@ -10,18 +10,52 @@ using System.Collections;
 namespace Obi
 {
     [BurstCompile]
-    struct ParticleToBoundsJob : IJobParallelFor
+    struct CalculateSimplexBoundsJob : IJobParallelFor
     {
-        [ReadOnly] public NativeArray<int> activeParticles;
-        [ReadOnly] public NativeArray<float4> positions;
         [ReadOnly] public NativeArray<float4> radii;
+        [ReadOnly] public NativeArray<float4> fluidMaterials;
+        [ReadOnly] public NativeArray<float4> positions;
+        [ReadOnly] public NativeArray<float4> velocities;
 
-        public NativeArray<BurstAabb> bounds;
+        // simplex arrays:
+        [ReadOnly] public NativeArray<int> simplices;
+        [ReadOnly] public SimplexCounts simplexCounts;
+
+        [ReadOnly] public NativeArray<int> particleMaterialIndices;
+        [ReadOnly] public NativeArray<BurstCollisionMaterial> collisionMaterials;
+        public NativeArray<BurstAabb> simplexBounds;
+        public NativeArray<BurstAabb> reducedBounds;
+
+        [ReadOnly] public Oni.SolverParameters parameters;
+        [ReadOnly] public float dt;
 
         public void Execute(int i)
         {
-            int p = activeParticles[i];
-            bounds[i] = new BurstAabb(positions[p] - radii[p].x, positions[p] + radii[p].x);
+            int simplexStart = simplexCounts.GetSimplexStartAndSize(i, out int simplexSize);
+
+            var sxBounds = new BurstAabb(float.MaxValue, float.MinValue);
+            var soBounds = new BurstAabb(float.MaxValue, float.MinValue);
+
+            for (int j = 0; j < simplexSize; ++j)
+            {
+                int p = simplices[simplexStart + j];
+
+                int m = particleMaterialIndices[p];
+                float solidRadius = radii[p].x + (m >= 0 ? collisionMaterials[m].stickDistance : 0);
+
+                // Expand simplex bounds, using both the particle's original position and its velocity.
+                // Add collision margin for both fluid neighborhood too (prevents explosions at high pressures due to neighborhood deficiency)
+                sxBounds.EncapsulateParticle(positions[p],
+                                             BurstIntegration.IntegrateLinear(positions[p], velocities[p], dt * parameters.particleCCD),
+                                             math.max(solidRadius, fluidMaterials[p].x * 0.5f) + parameters.collisionMargin);
+
+                soBounds.EncapsulateParticle(positions[p],
+                                             BurstIntegration.IntegrateLinear(positions[p], velocities[p], dt),
+                                             solidRadius);
+            }
+
+            simplexBounds[i] = sxBounds;
+            reducedBounds[i] = soBounds;
         }
     }
 

@@ -8,13 +8,14 @@ namespace Obi
         [Range(0,1)]
         public float m;
 
-		public void LateUpdate()
+        public void LateUpdate()
 		{
-            if (smoother != null)
+            if (smoother != null && smoother.actor.isLoaded)
             {
+                var trfm = smoother.actor.solver.transform;
                 ObiPathFrame section = smoother.GetSectionAt(m);
-                transform.position = smoother.transform.TransformPoint(section.position);
-                transform.rotation = smoother.transform.rotation * (Quaternion.LookRotation(section.tangent, section.binormal));
+                transform.position = trfm.TransformPoint(section.position);
+                transform.rotation = trfm.rotation * Quaternion.LookRotation(section.tangent, section.binormal);
             }
 		}
 

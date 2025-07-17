@@ -63,7 +63,6 @@ namespace Obi
             {
                 throw new InvalidOperationException("Cannot get position in path because it has zero control points.");
             }
-
         }
 
         /**

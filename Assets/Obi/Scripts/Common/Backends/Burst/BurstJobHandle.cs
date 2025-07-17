@@ -5,22 +5,16 @@ namespace Obi
 {
     public class BurstJobHandle : IObiJobHandle
     {
-        private JobHandle handle = new JobHandle();
-
-        public BurstJobHandle SetHandle(JobHandle newHandle)
-        {
-            handle = newHandle;
-            return this;
-        }
+        public JobHandle jobHandle { get; set; } = new JobHandle();
 
         public void Complete()
         {
-            handle.Complete();
+            jobHandle.Complete();
         }
 
         public void Release()
         {
-            handle = new JobHandle();
+            jobHandle = new JobHandle();
         }
     }
 }

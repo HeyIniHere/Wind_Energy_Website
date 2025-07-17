@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
+using System.IO;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -16,7 +17,9 @@ namespace Obi
         public delegate void BlueprintCallback(ObiActorBlueprint blueprint);
         public event BlueprintCallback OnBlueprintGenerate;
 
+        [HideInInspector] [SerializeField] protected uint m_Checksum;  
         [HideInInspector] [SerializeField] protected bool m_Empty = true;
+        [HideInInspector] [SerializeField] protected bool m_Edited = false;             /**< Whether there's been any modifications to blueprint data since generating it. This is used to tell whether it can be re-generated without data loss.*/
         [HideInInspector] [SerializeField] protected int m_ActiveParticleCount = 0;
         [HideInInspector] [SerializeField] protected int m_InitialActiveParticleCount = 0;
         [HideInInspector] [SerializeField] protected Bounds _bounds = new Bounds();
@@ -24,6 +27,7 @@ namespace Obi
         /**Particle components*/
         [HideInInspector] public Vector3[] positions = null;           /**< Particle positions.*/
         [HideInInspector] public Vector4[] restPositions = null;       /**< Particle rest positions, used to filter collisions.*/
+        [HideInInspector] public Vector4[] restNormals = null;         /**< Particle local-space normal in xyz, SDF in w. Used for softbody collisions.*/
 
         [HideInInspector] public Quaternion[] orientations = null;     /**< Particle orientations.*/
         [HideInInspector] public Quaternion[] restOrientations = null; /**< Particle rest orientations.*/
@@ -35,7 +39,7 @@ namespace Obi
         [HideInInspector] public float[] invRotationalMasses = null;
 
         [FormerlySerializedAs("phases")]
-        [HideInInspector] public int[] filters = null;                 /**< Particle filters*/       
+        [HideInInspector] public int[] filters = null;                 /**< Particle filters*/
         [HideInInspector] public Vector3[] principalRadii = null;      /**< Particle ellipsoid principal radii. These are the ellipsoid radius in each axis.*/
         [HideInInspector] public Color[] colors = null;                /**< Particle colors (not used by all actors, can be null)*/
 
@@ -60,6 +64,14 @@ namespace Obi
         [HideInInspector] public List<ObiParticleGroup> groups = new List<ObiParticleGroup>();
 
         /**
+         * Checksum value generated from particle positions and orientations.
+         */
+        public uint checksum
+        {
+            get { return m_Checksum; }
+        }
+
+        /**
          * Returns the amount of particles used by this blueprint.
          */
         public int particleCount
@@ -72,6 +84,16 @@ namespace Obi
             get { return m_ActiveParticleCount; }
         }
 
+        public Oni.SimplexType simplexTypes
+        {
+            get
+            {
+                return Oni.SimplexType.Point | // points (single particles) are always available.
+                       (edges != null ? Oni.SimplexType.Edge : 0) |
+                       (triangles != null ? Oni.SimplexType.Triangle : 0);
+            }
+        }
+
         /**
          * Returns whether this group uses oriented particles.
          */
@@ -80,12 +102,11 @@ namespace Obi
             get
             {
                 return invRotationalMasses != null && invRotationalMasses.Length > 0 &&
-                       orientations != null && orientations.Length > 0 &&
-                       restOrientations != null && restOrientations.Length > 0;
+                       orientations != null && orientations.Length > 0;
             }
         }
 
-        public virtual bool usesTethers 
+        public virtual bool usesTethers
         {
             get { return false; }
         }
@@ -99,6 +120,7 @@ namespace Obi
         {
             positions.Swap(index, m_ActiveParticleCount);
             restPositions.Swap(index, m_ActiveParticleCount);
+            restNormals.Swap(index, m_ActiveParticleCount);
             orientations.Swap(index, m_ActiveParticleCount);
             restOrientations.Swap(index, m_ActiveParticleCount);
             velocities.Swap(index, m_ActiveParticleCount);
@@ -108,6 +130,14 @@ namespace Obi
             filters.Swap(index, m_ActiveParticleCount);
             principalRadii.Swap(index, m_ActiveParticleCount);
             colors.Swap(index, m_ActiveParticleCount);
+
+            m_Edited = true;
+        }
+
+        public bool edited
+        {
+            get { return m_Edited; }
+            set { m_Edited = value; }
         }
 
         /** 
@@ -148,7 +178,7 @@ namespace Obi
         {
             if (positions.Length > 0)
             {
-                _bounds = new Bounds(positions[0],Vector3.zero);
+                _bounds = new Bounds(positions[0], Vector3.zero);
                 for (int i = 1; i < positions.Length; ++i)
                     _bounds.Encapsulate(positions[i]);
             }
@@ -161,27 +191,42 @@ namespace Obi
             get { return _bounds; }
         }
 
+        protected void GenerateChecksum()
+        {
+            using (MemoryStream ms = new MemoryStream())
+            {
+                if (positions != null)
+                    foreach (var p in positions) ms.Concatenate(p);
+
+                if (orientations != null)
+                    foreach (var o in orientations) ms.Concatenate(o);
+
+                ms.Flush();
+                m_Checksum = ObiUtils.Adler32(ms.ToArray());
+            }
+        }
+
         public IEnumerable<IObiConstraints> GetConstraints()
         {
-            if (distanceConstraintsData != null && distanceConstraintsData.GetBatchCount() > 0)
+            if (distanceConstraintsData != null && distanceConstraintsData.batchCount > 0)
                 yield return distanceConstraintsData;
-            if (bendConstraintsData != null && bendConstraintsData.GetBatchCount() > 0)
+            if (bendConstraintsData != null && bendConstraintsData.batchCount > 0)
                 yield return bendConstraintsData;
-            if (skinConstraintsData != null && skinConstraintsData.GetBatchCount() > 0)
+            if (skinConstraintsData != null && skinConstraintsData.batchCount > 0)
                 yield return skinConstraintsData;
-            if (tetherConstraintsData != null && tetherConstraintsData.GetBatchCount() > 0)
+            if (tetherConstraintsData != null && tetherConstraintsData.batchCount > 0)
                 yield return tetherConstraintsData;
-            if (stretchShearConstraintsData != null && stretchShearConstraintsData.GetBatchCount() > 0)
+            if (stretchShearConstraintsData != null && stretchShearConstraintsData.batchCount > 0)
                 yield return stretchShearConstraintsData;
-            if (bendTwistConstraintsData != null && bendTwistConstraintsData.GetBatchCount() > 0)
+            if (bendTwistConstraintsData != null && bendTwistConstraintsData.batchCount > 0)
                 yield return bendTwistConstraintsData;
-            if (shapeMatchingConstraintsData != null && shapeMatchingConstraintsData.GetBatchCount() > 0)
+            if (shapeMatchingConstraintsData != null && shapeMatchingConstraintsData.batchCount > 0)
                 yield return shapeMatchingConstraintsData;
-            if (aerodynamicConstraintsData != null && aerodynamicConstraintsData.GetBatchCount() > 0)
+            if (aerodynamicConstraintsData != null && aerodynamicConstraintsData.batchCount > 0)
                 yield return aerodynamicConstraintsData;
-            if (chainConstraintsData != null && chainConstraintsData.GetBatchCount() > 0)
+            if (chainConstraintsData != null && chainConstraintsData.batchCount > 0)
                 yield return chainConstraintsData;
-            if (volumeConstraintsData != null && volumeConstraintsData.GetBatchCount() > 0)
+            if (volumeConstraintsData != null && volumeConstraintsData.batchCount > 0)
                 yield return volumeConstraintsData;
         }
 
@@ -222,6 +267,24 @@ namespace Obi
             if (orientations != null && index < orientations.Length)
             {
                 return orientations[index];
+            }
+            return Quaternion.identity;
+        }
+
+        public Vector3 GetParticleRestPosition(int index)
+        {
+            if (restPositions != null && index < restPositions.Length)
+            {
+                return restPositions[index];
+            }
+            return Vector3.zero;
+        }
+
+        public Quaternion GetParticleRestOrientation(int index)
+        {
+            if (restOrientations != null && index < restOrientations.Length)
+            {
+                return restOrientations[index];
             }
             return Quaternion.identity;
         }
@@ -270,7 +333,7 @@ namespace Obi
         public void GenerateImmediate()
         {
             var g = Generate();
-            while (g.MoveNext()){}
+            while (g.MoveNext()) { }
         }
 
         public IEnumerator Generate()
@@ -288,24 +351,37 @@ namespace Obi
             m_InitialActiveParticleCount = m_ActiveParticleCount;
 
             foreach (IObiConstraints constraints in GetConstraints())
-                for (int i = 0; i < constraints.GetBatchCount(); ++i)
+                for (int i = 0; i < constraints.batchCount; ++i)
                     constraints.GetBatch(i).initialActiveConstraintCount = constraints.GetBatch(i).activeConstraintCount;
 
+            CommitBlueprintChanges();
+
 #if UNITY_EDITOR
-            EditorUtility.SetDirty(this);
+            if (!Application.isPlaying)
+            {
+                EditorUtility.SetDirty(this);
+            }
 #endif
 
-            if (OnBlueprintGenerate != null)
-                OnBlueprintGenerate(this);
+            OnBlueprintGenerate?.Invoke(this);
+        }
+
+        // Called at the end of blueprint generation. Also automatically called when exiting blueprint editor.
+        // This generates a checksum for the blueprint, and in some case extra data (such as default skinmaps for cloth and softbodies).
+        public virtual void CommitBlueprintChanges()
+        {
+            GenerateChecksum();
         }
 
         public void Clear()
         {
             m_Empty = true;
+            edited = false;
 
             m_ActiveParticleCount = 0;
             positions = null;
             restPositions = null;
+            restNormals = null;
             orientations = null;
             restOrientations = null;
             velocities = null;
@@ -313,7 +389,6 @@ namespace Obi
             invMasses = null;
             invRotationalMasses = null;
             filters = null;
-            //phases = null;
             principalRadii = null;
             colors = null;
 
@@ -355,7 +430,7 @@ namespace Obi
                     {
                         EditorUtility.SetDirty(this);
                         if (saveImmediately)
-                            AssetDatabase.SaveAssets();
+                            AssetDatabase.SaveAssetIfDirty(this);
                     }
                 }
                 else
@@ -363,6 +438,8 @@ namespace Obi
                 {
                     groups.Insert(index, group);
                 }
+
+                edited = true;
 
                 return group;
             }
@@ -393,7 +470,7 @@ namespace Obi
                     {
                         EditorUtility.SetDirty(this);
                         if (saveImmediately)
-                            AssetDatabase.SaveAssets();
+                            AssetDatabase.SaveAssetIfDirty(this);
                     }
                 }
                 else
@@ -405,6 +482,8 @@ namespace Obi
                     if (group != null)
                         DestroyImmediate(group, true);
                 }
+
+                edited = true;
 
                 return true;
             }
@@ -425,7 +504,7 @@ namespace Obi
                     {
                         EditorUtility.SetDirty(this);
                         if (saveImmediately)
-                            AssetDatabase.SaveAssets();
+                            AssetDatabase.SaveAssetIfDirty(this);
                     }
                 }
                 else
@@ -434,26 +513,39 @@ namespace Obi
                     groups[index].name = name;
                 }
 
+                edited = true;
+
                 return true;
             }
             return false;
         }
 
-        public void ClearParticleGroups(bool saveImmediately = true)
+        public void ClearParticleGroups(bool registerUndo = true, bool saveImmediately = true)
         {
+            if (groups.Count == 0) return;
+
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                Undo.RecordObject(this, "Clear particle groups");
-                for (int i = 0; i < groups.Count; ++i)
-                    if (groups[i] != null)
-                        Undo.DestroyObjectImmediate(groups[i]);
+                if (registerUndo)
+                {
+                    Undo.RecordObject(this, "Clear particle groups");
+                    for (int i = 0; i < groups.Count; ++i)
+                        if (groups[i] != null)
+                            Undo.DestroyObjectImmediate(groups[i]);
+                }
+                else
+                {
+                    for (int i = 0; i < groups.Count; ++i)
+                        if (groups[i] != null)
+                            DestroyImmediate(groups[i], true);
+                }
 
                 if (EditorUtility.IsPersistent(this))
                 {
                     EditorUtility.SetDirty(this);
                     if (saveImmediately)
-                        AssetDatabase.SaveAssets();
+                        AssetDatabase.SaveAssetIfDirty(this);
                 }
             }
             else
@@ -488,7 +580,7 @@ namespace Obi
         private bool DoesParticleShareConstraints(IObiConstraints constraints, int index, List<int> particles, bool[] selected)
         {
             bool shared = false;
-            for (int i = 0; i < constraints.GetBatchCount(); ++i)
+            for (int i = 0; i < constraints.batchCount; ++i)
             {
                 var batch = constraints.GetBatch(i);
                 for (int j = 0; j < batch.activeConstraintCount; ++j)
@@ -508,7 +600,7 @@ namespace Obi
 
         private void DeactivateConstraintsWithInactiveParticles(IObiConstraints constraints, List<int> particles)
         {
-            for (int j = 0; j < constraints.GetBatchCount(); ++j)
+            for (int j = 0; j < constraints.batchCount; ++j)
             {
                 var batch = constraints.GetBatch(j);
 
@@ -526,6 +618,8 @@ namespace Obi
                     }
                 }
             }
+
+            edited = true;
         }
 
         private void ParticlesSwappedInGroups(int index, int newIndex)
@@ -541,9 +635,11 @@ namespace Obi
                         group.particleIndices[i] = newIndex;
                 }
             }
+
+            edited = true;
         }
 
-        public void RemoveSelectedParticles(ref bool[] selected, bool optimize = true)
+        public virtual void RemoveSelectedParticles(ref bool[] selected, bool optimize = true)
         {
             List<int> particles = new List<int>();
 
@@ -571,7 +667,7 @@ namespace Obi
 
                         // Update constraints:
                         foreach (IObiConstraints constraints in GetConstraints())
-                            for (int j = 0; j < constraints.GetBatchCount(); ++j)
+                            for (int j = 0; j < constraints.batchCount; ++j)
                                 constraints.GetBatch(j).ParticlesSwapped(i, m_ActiveParticleCount);
 
                         // Update groups:
@@ -585,6 +681,9 @@ namespace Obi
             foreach (IObiConstraints constraints in GetConstraints())
                 DeactivateConstraintsWithInactiveParticles(constraints, particles);
 
+            CommitBlueprintChanges();
+
+            edited = true;
         }
 
         public void RestoreRemovedParticles()
@@ -592,9 +691,10 @@ namespace Obi
             m_ActiveParticleCount = m_InitialActiveParticleCount;
 
             foreach (IObiConstraints constraints in GetConstraints())
-                for (int j = 0; j < constraints.GetBatchCount(); ++j)
+                for (int j = 0; j < constraints.batchCount; ++j)
                     constraints.GetBatch(j).activeConstraintCount = constraints.GetBatch(j).initialActiveConstraintCount;
-           
+
+            CommitBlueprintChanges();
         }
 
         public virtual void GenerateTethers(bool[] selected) { }

@@ -12,7 +12,8 @@ public class RopeCreator : MonoBehaviour
     private int nodeCount = 0;
 
     public GameObject _solver;
-    public List<GameObject> linkPrefabs;
+    public Mesh linkMesh;
+    public Material linkMaterial;
     public TextAsset file; 
     public Material ropeMat;
     public int _skipLines;
@@ -62,15 +63,13 @@ public class RopeCreator : MonoBehaviour
         // get component reference:
         ObiRopeChainRenderer chainRenderer = ropeObject.GetComponent<ObiRopeChainRenderer>();
 
-        // load the default rope section:
-        foreach (GameObject linkPrefab in linkPrefabs)
-        {
-            chainRenderer.linkPrefabs.Add(linkPrefab);
-        }
-        
+        // load the default chain section:
+        chainRenderer.linkMaterial = linkMaterial;
+        chainRenderer.linkMesh = linkMesh;
+
         // TODO: Don't hardcode this
         chainRenderer.linkScale = new Vector3(170, 170, 170);
-        chainRenderer.sectionTwist = 90;
+        chainRenderer.linkTwist = 90;
 
         return ropeObject;
     }

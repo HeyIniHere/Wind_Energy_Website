@@ -26,25 +26,42 @@ namespace Obi
 
         [ReadOnly] public float velocityScale;
         [ReadOnly] public float sleepThreshold;
+        [ReadOnly] public float maxVelocity;
+        [ReadOnly] public float maxAngularVelocity;
 
         // The code actually running on the job
         public void Execute(int index)
         {
             int i = activeParticles[index];
 
+            float4 velocity = velocities[i];
+            float4 angVelocity = angularVelocities[i];
+
             // damp velocities:
-            velocities[i] *= velocityScale;
-            angularVelocities[i] *= velocityScale;
+            velocity *= velocityScale;
+            angVelocity.xyz *= velocityScale;
+
+            // clamp velocities:
+            float velMagnitude = math.length(velocity);
+            float angularVelMagnitude = math.length(angVelocity.xyz);
+
+            if (velMagnitude > BurstMath.epsilon)
+                velocity *= math.min(maxVelocity, velMagnitude) / velMagnitude;
+
+            if (angularVelMagnitude > BurstMath.epsilon)
+                angVelocity.xyz *= math.min(maxAngularVelocity, angularVelMagnitude) / angularVelMagnitude;
 
             // if the kinetic energy is below the sleep threshold, keep the particle at its previous position.
-            if (math.lengthsq(velocities[i]) * 0.5f + math.lengthsq(angularVelocities[i]) * 0.5f <= sleepThreshold)
+            if (velMagnitude * velMagnitude * 0.5f + angularVelMagnitude * angularVelMagnitude * 0.5f <= sleepThreshold)
             {
                 positions[i] = previousPositions[i];
                 orientations[i] = previousOrientations[i];
-                velocities[i] = float4.zero;
-                angularVelocities[i] = float4.zero;
+                velocity = float4.zero;
+                angVelocity.xyz = float3.zero;
             }
 
+            velocities[i] = velocity;
+            angularVelocities[i] = angVelocity;
         }
     }
 }

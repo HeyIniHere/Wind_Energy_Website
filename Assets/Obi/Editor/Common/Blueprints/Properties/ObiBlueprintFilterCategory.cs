@@ -22,6 +22,7 @@ namespace Obi
         public override void Set(int index, int value)
         {
             editor.blueprint.filters[index] = ObiUtils.MakeFilter(ObiUtils.GetMaskFromFilter(editor.blueprint.filters[index]), value);
+            editor.blueprint.edited = true;
         }
         public override bool Masked(int index)
         {

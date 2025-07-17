@@ -26,7 +26,7 @@ namespace Obi{
             ObiColliderWorld.GetInstance().DestroyDistanceField(handle);
         }
 
-        public override bool UpdateIfNeeded ()
+        public override void UpdateIfNeeded ()
         {
 
             bool trigger = false;
@@ -55,9 +55,11 @@ namespace Obi{
             var shape = world.colliderShapes[index];
             shape.type = ColliderShape.ShapeType.SignedDistanceField;
             shape.filter = source.Filter;
-            shape.flags = trigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = trigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.dataIndex = handle.index;
             world.colliderShapes[index] = shape;
@@ -69,10 +71,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(source.transform);
+            trfm.FromTransform3D(source.transform, source.Rigidbody as ObiRigidbody);
             world.colliderTransforms[index] = trfm;
-
-            return true;
         }
 
         public override void Destroy()

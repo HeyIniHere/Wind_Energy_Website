@@ -27,7 +27,7 @@ namespace Obi{
 				
 				serializedObject.ApplyModifiedProperties();
 				
-                renderer.UpdateRenderer(null);
+                //renderer.UpdateRenderer(null);
 				
 			}
 			

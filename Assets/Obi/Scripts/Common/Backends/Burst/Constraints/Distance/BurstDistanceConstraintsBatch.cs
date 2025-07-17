@@ -39,7 +39,7 @@ namespace Obi
             applyConstraints.particleIndices = this.particleIndices;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             projectConstraints.positions = solverImplementation.positions;
             projectConstraints.invMasses = solverImplementation.invMasses;
@@ -62,7 +62,7 @@ namespace Obi
             return applyConstraints.Schedule(m_ConstraintCount, 64, inputDeps);
         }
 
-        [BurstCompile]
+        [BurstCompile] 
         public struct DistanceConstraintsBatchJob : IJobParallelFor
         {
             [ReadOnly] public NativeArray<int> particleIndices;

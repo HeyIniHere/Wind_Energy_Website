@@ -52,7 +52,7 @@ namespace Obi
 
         private void FloatFromTexture(int i, Color color)
         {
-            if (!selectionMask || editor.selectionStatus[i])
+            if (!selectionMask || ObiActorBlueprintEditor.selectionStatus[i])
             {
                 float value = minPropertyValue + color[(int)textureChannel] * (maxPropertyValue - minPropertyValue);
                 floatProperty.Set(i, value);
@@ -61,7 +61,7 @@ namespace Obi
 
         private void ColorFromTexture(int i, Color color)
         {
-            if (!selectionMask || editor.selectionStatus[i])
+            if (!selectionMask || ObiActorBlueprintEditor.selectionStatus[i])
                 colorProperty.Set(i, color);
         }
 

@@ -127,6 +127,9 @@ namespace Obi
                     yield return new CoroutineJob.ProgressInfo("ObiRod: generating particles...", i / (float)m_ActiveParticleCount);
             }
 
+            // Deformable edges:
+            CreateDeformableEdges(numSegments);
+
             // Create edge simplices:
             CreateSimplices(numSegments);
 
@@ -142,6 +145,12 @@ namespace Obi
             while (bc.MoveNext())
                 yield return bc.Current;
 
+            // Create aerodynamic constraints:
+            IEnumerator ac = CreateAerodynamicConstraints();
+
+            while (ac.MoveNext())
+                yield return ac.Current;
+
             // Create chain constraints:
             IEnumerator cc = CreateChainConstraints();
 
@@ -149,7 +158,6 @@ namespace Obi
                 yield return cc.Current;
 
         }
-
 
         protected virtual IEnumerator CreateStretchShearConstraints(List<Vector3> particleNormals)
         {
@@ -159,8 +167,7 @@ namespace Obi
             stretchShearConstraintsData.AddBatch(new ObiStretchShearConstraintsBatch());
 
             // rotation minimizing frame:
-            ObiPathFrame frame = new ObiPathFrame();
-            frame.Reset();
+            ObiPathFrame frame = ObiPathFrame.Identity;
 
             for (int i = 0; i < totalParticles - 1; i++)
             {

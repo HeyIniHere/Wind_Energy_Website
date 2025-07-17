@@ -14,7 +14,7 @@ namespace Obi
     {
         [ReadOnly] public NativeArray<int> activeParticles;
         [ReadOnly] public NativeArray<int> phases;
-        [ReadOnly] public NativeArray<float> buoyancies;
+        [ReadOnly] public NativeArray<float4> buoyancies;
 
         // linear/position properties:
         [ReadOnly] public NativeArray<float4> externalForces;
@@ -48,7 +48,7 @@ namespace Obi
 
                 // Adjust gravity for buoyant fluid particles:
                 if ((phases[i] & (int)ObiUtils.ParticleFlags.Fluid) != 0)
-                    effectiveGravity *= -buoyancies[i];
+                    effectiveGravity *= -buoyancies[i].z;
 
                 // apply external forces and gravity:
                 float4 vel = velocities[i] + (inverseMasses[i] * externalForces[i] + effectiveGravity) * deltaTime; 
@@ -63,13 +63,13 @@ namespace Obi
             if (inverseRotationalMasses[i] > 0)
             {
                 // apply external torques (simplification: we don't use full inertia tensor here)
-                float4 angularVel = angularVelocities[i] + inverseRotationalMasses[i] * externalTorques[i] * deltaTime;
+                float3 angularVel = angularVelocities[i].xyz + inverseRotationalMasses[i] * externalTorques[i].xyz * deltaTime;
 
                 // project angular velocity to 2D plane normal if needed:
                 if (is2D)
-                    angularVel = angularVel.project(new float4(0, 0, 1, 0));
+                    angularVel = angularVel.project(new float3(0, 0, 1));
 
-                angularVelocities[i] = angularVel;
+                angularVelocities[i] = new float4(angularVel, angularVelocities[i].w);
             }
 
             // integrate velocities:

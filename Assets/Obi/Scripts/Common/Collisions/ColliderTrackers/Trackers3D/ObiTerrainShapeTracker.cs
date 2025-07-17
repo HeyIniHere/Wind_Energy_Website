@@ -6,7 +6,6 @@ namespace Obi{
 
 	public class ObiTerrainShapeTracker : ObiShapeTracker
 	{
-		private bool heightmapDataHasChanged = false;
         ObiHeightFieldHandle handle;
 
         public ObiTerrainShapeTracker(ObiCollider source, TerrainCollider collider){
@@ -20,7 +19,7 @@ namespace Obi{
             ObiColliderWorld.GetInstance().DestroyHeightField(handle);
         }
 	
-		public override bool UpdateIfNeeded ()
+		public override void UpdateIfNeeded ()
         {
 
             TerrainCollider terrain = collider as TerrainCollider;
@@ -42,9 +41,11 @@ namespace Obi{
             var shape = world.colliderShapes[index];
             shape.type = ColliderShape.ShapeType.Heightmap;
             shape.filter = source.Filter;
-            shape.flags = terrain.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = terrain.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.dataIndex = handle.index;
             shape.size = terrain.terrainData.size;
@@ -58,10 +59,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(terrain.transform);
+            trfm.FromTransform3D(terrain.transform, source.Rigidbody as ObiRigidbody);
             world.colliderTransforms[index] = trfm;
-
-            return true;
         }
 
 		public override void Destroy()

@@ -32,8 +32,8 @@ namespace Obi
 
         public override string GetHelpString()
         {
-            if (editor.selectedCount > 0)
-                return "" + editor.selectedCount + " selected particles.";
+            if (ObiActorBlueprintEditor.selectedCount > 0)
+                return "" + ObiActorBlueprintEditor.selectedCount + " selected particles.";
             else
                 return "No particles selected. Click and drag over particles to select them.";
         }
@@ -65,12 +65,12 @@ namespace Obi
                 {
                     if ((Event.current.modifiers & EventModifiers.Shift) == 0)
                     {
-                        for (int p = 0; p < editor.selectionStatus.Length; p++)
-                            editor.selectionStatus[p] = false;
+                        for (int p = 0; p < ObiActorBlueprintEditor.selectionStatus.Length; p++)
+                            ObiActorBlueprintEditor.selectionStatus[p] = false;
                     }
 
                     foreach (int p in group.particleIndices)
-                        editor.selectionStatus[p] = true;
+                        ObiActorBlueprintEditor.selectionStatus[p] = true;
 
                     UpdateSelection();
                 }
@@ -78,9 +78,9 @@ namespace Obi
                 if (GUI.Button(new Rect(rect.x + rect.width * 0.5f, rect.y, rect.width * 0.5f, EditorGUIUtility.singleLineHeight), "Set", EditorStyles.miniButtonRight))
                 {
                     group.particleIndices.Clear();
-                    for (int p = 0; p < editor.selectionStatus.Length; p++)
+                    for (int p = 0; p < ObiActorBlueprintEditor.selectionStatus.Length; p++)
                     {
-                        if (editor.selectionStatus[p])
+                        if (ObiActorBlueprintEditor.selectionStatus[p])
                             group.particleIndices.Add(p);
                     }
                 }
@@ -95,9 +95,9 @@ namespace Obi
 
                 var group = editor.blueprint.AppendNewParticleGroup("new group");
 
-                for (int i = 0; i < editor.selectionStatus.Length; i++)
+                for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
                 {
-                    if (editor.selectionStatus[i])
+                    if (ObiActorBlueprintEditor.selectionStatus[i])
                         group.particleIndices.Add(i);
                 }
 
@@ -116,33 +116,33 @@ namespace Obi
             GUILayout.FlexibleSpace();
             if (GUILayout.Button(new GUIContent(Resources.Load<Texture2D>("InvertButton"), "Invert selection"), GUILayout.MaxHeight(24), GUILayout.MaxWidth(48)))
             {
-                for (int i = 0; i < editor.selectionStatus.Length; i++)
+                for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
                 {
                     if (editor.blueprint.IsParticleActive(i))
-                        editor.selectionStatus[i] = !editor.selectionStatus[i];
+                        ObiActorBlueprintEditor.selectionStatus[i] = !ObiActorBlueprintEditor.selectionStatus[i];
                 }
                 UpdateSelection();
             }
 
-            GUI.enabled = editor.selectedCount > 0;
+            GUI.enabled = ObiActorBlueprintEditor.selectedCount > 0;
             if (GUILayout.Button(new GUIContent(Resources.Load<Texture2D>("ClearButton"), "Clear selection"), GUILayout.MaxHeight(24), GUILayout.MaxWidth(48)))
             {
-                for (int i = 0; i < editor.selectionStatus.Length; i++)
-                    editor.selectionStatus[i] = false;
+                for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
+                    ObiActorBlueprintEditor.selectionStatus[i] = false;
                 UpdateSelection();
             }
 
             if (GUILayout.Button(new GUIContent(Resources.Load<Texture2D>("OptimizeButton"), "Optimize selected"), GUILayout.MaxHeight(24), GUILayout.MaxWidth(48)))
             {
                 Undo.RecordObject(editor.blueprint, "Optimize particles away");
-                editor.blueprint.RemoveSelectedParticles(ref editor.selectionStatus);
+                editor.blueprint.RemoveSelectedParticles(ref ObiActorBlueprintEditor.selectionStatus);
                 editor.Refresh();
             }
 
             if (GUILayout.Button(new GUIContent(Resources.Load<Texture2D>("RemoveButton"), "Remove selected"), GUILayout.MaxHeight(24), GUILayout.MaxWidth(48)))
             {
                 Undo.RecordObject(editor.blueprint, "Remove particles");
-                editor.blueprint.RemoveSelectedParticles(ref editor.selectionStatus, false);
+                editor.blueprint.RemoveSelectedParticles(ref ObiActorBlueprintEditor.selectionStatus, false);
                 editor.Refresh();
             }
             GUI.enabled = true;
@@ -175,12 +175,12 @@ namespace Obi
                     maxSelectionValue = EditorGUILayout.FloatField("Maximum " + property.name, maxSelectionValue);
                     if (EditorGUI.EndChangeCheck())
                     {
-                        for (int i = 0; i < editor.selectionStatus.Length; i++)
+                        for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
                         {
                             if (editor.blueprint.IsParticleActive(i))
                             {
                                 var value = property.Get(i);
-                                editor.selectionStatus[i] = value >= minSelectionValue && value <= maxSelectionValue;
+                                ObiActorBlueprintEditor.selectionStatus[i] = value >= minSelectionValue && value <= maxSelectionValue;
                             }
                         }
                         UpdateSelection();
@@ -244,9 +244,9 @@ namespace Obi
             if (EditorGUI.EndChangeCheck())
             {
                 Undo.RecordObject(editor.blueprint, "Set particle property");
-                for (int i = 0; i < editor.selectionStatus.Length; i++)
+                for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
                 {
-                    if (!editor.selectionStatus[i]) continue;
+                    if (!ObiActorBlueprintEditor.selectionStatus[i]) continue;
                     editor.currentProperty.SetDefaultToIndex(i);
                 }
                 editor.Refresh();
@@ -287,7 +287,7 @@ namespace Obi
             EditorGUILayout.BeginVertical(EditorStyles.inspectorDefaultMargins);
 
                 editor.RenderModeSelector();
-                editor.dotRadiusScale = EditorGUILayout.Slider(new GUIContent("Particle dot size"), editor.dotRadiusScale, 0, 5);
+                ObiActorBlueprintEditor.dotRadiusScale = EditorGUILayout.Slider(new GUIContent("Particle dot size"), ObiActorBlueprintEditor.dotRadiusScale, 0, 5);
                 editor.currentProperty.VisualizationOptions();
            
             EditorGUILayout.EndVertical();
@@ -301,31 +301,31 @@ namespace Obi
 
         protected void UpdateSelection()
         {
-            editor.selectedCount = 0;
+            ObiActorBlueprintEditor.selectedCount = 0;
             mixedPropertyValue = false;
 
             // Find out how many selected particles we have, and whether they all have the same value for the current property:
-            for (int i = 0; i < editor.selectionStatus.Length; i++)
+            for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; i++)
             {
-                if (editor.blueprint.IsParticleActive(i) && editor.selectionStatus[i])
+                if (editor.blueprint.IsParticleActive(i) && ObiActorBlueprintEditor.selectionStatus[i])
                 {
-                    editor.selectedCount++;
+                    ObiActorBlueprintEditor.selectedCount++;
 
-                    if (editor.activeParticle >= 0)
+                    if (ObiActorBlueprintEditor.activeParticle >= 0)
                     {
-                        if (!editor.currentProperty.Equals(editor.activeParticle, i))
+                        if (!editor.currentProperty.Equals(ObiActorBlueprintEditor.activeParticle, i))
                             mixedPropertyValue = true;
                     }
                     else
-                        editor.activeParticle = i;
+                        ObiActorBlueprintEditor.activeParticle = i;
                 }
-                else if (editor.activeParticle == i)
-                    editor.activeParticle = -1;
+                else if (ObiActorBlueprintEditor.activeParticle == i)
+                    ObiActorBlueprintEditor.activeParticle = -1;
             }
 
             // Set initial property value:
-            if (!mixedPropertyValue && editor.activeParticle >= 0)
-                editor.currentProperty.GetDefaultFromIndex(editor.activeParticle);
+            if (!mixedPropertyValue && ObiActorBlueprintEditor.activeParticle >= 0)
+                editor.currentProperty.GetDefaultFromIndex(ObiActorBlueprintEditor.activeParticle);
 
             editor.Repaint();
             SceneView.RepaintAll();

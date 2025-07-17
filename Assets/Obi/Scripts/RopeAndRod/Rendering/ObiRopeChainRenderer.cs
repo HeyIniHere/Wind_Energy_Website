@@ -7,163 +7,71 @@ namespace Obi
 {
     [AddComponentMenu("Physics/Obi/Obi Rope Chain Renderer", 885)]
     [ExecuteInEditMode]
-    public class ObiRopeChainRenderer : MonoBehaviour
+    public class ObiRopeChainRenderer : MonoBehaviour, ObiActorRenderer<ObiRopeChainRenderer>
     {
-        static ProfilerMarker m_UpdateChainRopeRendererChunksPerfMarker = new ProfilerMarker("UpdateChainRopeRenderer");
+        [Serializable]
+        public struct LinkModifier
+        {
+            public Vector3 translation;
+            public Vector3 scale;
+            public Vector3 rotation;
 
-        [HideInInspector] [SerializeField] public List<GameObject> linkInstances = new List<GameObject>();
+            public void Clear()
+            {
+                translation = Vector3.zero;
+                scale = Vector3.one;
+                rotation = Vector3.zero;
+            }
+        }
 
-        [SerializeProperty("RandomizeLinks")]
-        [SerializeField] private bool randomizeLinks = false;
-
+        public Mesh linkMesh;
+        public Material linkMaterial;
         public Vector3 linkScale = Vector3.one;     /**< Scale of chain links.*/
-        public List<GameObject> linkPrefabs = new List<GameObject>();
 
         [Range(0, 1)]
         public float twistAnchor = 0;               /**< Normalized position of twisting origin along rope.*/
+        public float linkTwist = 0;              /**< Amount of twist applied to each section, in degrees.*/
 
-        public float sectionTwist = 0;              /**< Amount of twist applied to each section, in degrees.*/
+        public List<LinkModifier> linkModifiers = new List<LinkModifier>();
 
-        ObiPathFrame frame = new ObiPathFrame();
+        public RenderBatchParams renderParameters = new RenderBatchParams(true);
+
+        public ObiActor actor { get; private set; }
 
         void Awake()
         {
-            ClearChainLinkInstances();
+            actor = GetComponent<ObiActor>();
         }
 
-        public bool RandomizeLinks
+        public void OnEnable()
         {
-            get { return randomizeLinks; }
-            set
-            {
-                if (value != randomizeLinks)
-                {
-                    randomizeLinks = value;
-                    CreateChainLinkInstances(GetComponent<ObiRopeBase>());
-                }
-            }
+            ((ObiActorRenderer<ObiRopeChainRenderer>)this).EnableRenderer();
         }
 
-        void OnEnable()
+        public void OnDisable()
         {
-            GetComponent<ObiRopeBase>().OnInterpolate += UpdateRenderer;
+            ((ObiActorRenderer<ObiRopeChainRenderer>)this).DisableRenderer();
         }
 
-        void OnDisable()
+        public void OnValidate()
         {
-            GetComponent<ObiRopeBase>().OnInterpolate -= UpdateRenderer;
-            ClearChainLinkInstances();
+            ((ObiActorRenderer<ObiRopeChainRenderer>)this).SetRendererDirty(Oni.RenderingSystemType.ChainRope);
         }
 
-        /**
-         * Destroys all chain link instances. Used when the chain must be re-created from scratch, and when the actor is disabled/destroyed.
-         */
-        public void ClearChainLinkInstances()
+        RenderSystem<ObiRopeChainRenderer> ObiRenderer<ObiRopeChainRenderer>.CreateRenderSystem(ObiSolver solver)
         {
-
-            if (linkInstances == null)
-                return;
-
-            for (int i = 0; i < linkInstances.Count; ++i)
-            {
-                if (linkInstances[i] != null)
-                    GameObject.DestroyImmediate(linkInstances[i]);
-            }
-            linkInstances.Clear();
-        }
-
-        public void CreateChainLinkInstances(ObiRopeBase rope)
-        {
-
-            ClearChainLinkInstances();
-
-            if (linkPrefabs.Count > 0)
+            switch (solver.backendType)
             {
 
-                for (int i = 0; i < rope.particleCount; ++i)
-                {
+#if (OBI_BURST && OBI_MATHEMATICS && OBI_COLLECTIONS)
+                case ObiSolver.BackendType.Burst: return new BurstChainRopeRenderSystem(solver);
+#endif
+                case ObiSolver.BackendType.Compute:
+                default:
 
-                    int index = randomizeLinks ? UnityEngine.Random.Range(0, linkPrefabs.Count) : i % linkPrefabs.Count;
-
-                    GameObject linkInstance = null;
-
-                    if (linkPrefabs[index] != null)
-                    {
-                        linkInstance = GameObject.Instantiate(linkPrefabs[index]);
-                        linkInstance.transform.SetParent(rope.transform, false);
-                        linkInstance.hideFlags = HideFlags.HideAndDontSave;
-                        linkInstance.SetActive(false);
-                    }
-
-                    linkInstances.Add(linkInstance);
-                }
-            }
-        }
-
-        public void UpdateRenderer(ObiActor actor)
-        {
-            using (m_UpdateChainRopeRendererChunksPerfMarker.Auto())
-            {
-                var rope = actor as ObiRopeBase;
-
-                // In case there are no link prefabs to instantiate:
-                if (linkPrefabs.Count == 0)
-                    return;
-
-                // Regenerate instances if needed:
-                if (linkInstances == null || linkInstances.Count < rope.particleCount)
-                {
-                    CreateChainLinkInstances(rope);
-                }
-
-                var blueprint = rope.sourceBlueprint;
-                int elementCount = rope.elements.Count;
-
-                float twist = -sectionTwist * elementCount * twistAnchor;
-
-                //we will define and transport a reference frame along the curve using parallel transport method:
-                frame.Reset();
-                frame.SetTwist(twist);
-
-                int lastParticle = -1;
-
-                for (int i = 0; i < elementCount; ++i)
-                {
-                    ObiStructuralElement elm = rope.elements[i];
-
-                    Vector3 pos = rope.GetParticlePosition(elm.particle1);
-                    Vector3 nextPos = rope.GetParticlePosition(elm.particle2);
-                    Vector3 linkVector = nextPos - pos;
-                    Vector3 tangent = linkVector.normalized;
-
-                    if (rope.sourceBlueprint.usesOrientedParticles)
-                    {
-                        frame.Transport(nextPos, tangent, rope.GetParticleOrientation(elm.particle1) * Vector3.up, twist);
-                        twist += sectionTwist;
-                    }
-                    else
-                    {
-                        frame.Transport(nextPos, tangent, sectionTwist);
-                    }
-
-                    if (linkInstances[i] != null)
-                    {
-                        linkInstances[i].SetActive(true);
-                        Transform linkTransform = linkInstances[i].transform;
-                        linkTransform.position = pos + linkVector * 0.5f;
-                        linkTransform.localScale = rope.GetParticleMaxRadius(elm.particle1) * 2 * linkScale;
-                        linkTransform.rotation = Quaternion.LookRotation(tangent, frame.normal);
-                    }
-
-                    lastParticle = elm.particle2;
-
-                }
-
-                for (int i = elementCount; i < linkInstances.Count; ++i)
-                {
-                    if (linkInstances[i] != null)
-                        linkInstances[i].SetActive(false);
-                }
+                    if (SystemInfo.supportsComputeShaders)
+                        return new ComputeChainRopeRenderSystem(solver);
+                    return null;
             }
         }
     }

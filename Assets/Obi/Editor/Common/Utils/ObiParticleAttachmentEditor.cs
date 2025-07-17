@@ -15,6 +15,7 @@ namespace Obi
         SerializedProperty targetTransform;
         SerializedProperty particleGroup;
         SerializedProperty attachmentType;
+        SerializedProperty projectPosition;
         SerializedProperty constrainOrientation;
         SerializedProperty compliance;
         SerializedProperty breakThreshold;
@@ -28,9 +29,10 @@ namespace Obi
             targetTransform = serializedObject.FindProperty("m_Target");
             particleGroup = serializedObject.FindProperty("m_ParticleGroup");
             attachmentType = serializedObject.FindProperty("m_AttachmentType");
+            projectPosition = serializedObject.FindProperty("m_Projection");
             constrainOrientation = serializedObject.FindProperty("m_ConstrainOrientation");
             compliance = serializedObject.FindProperty("m_Compliance");
-            breakThreshold = serializedObject.FindProperty("m_BreakThreshold");
+            breakThreshold = serializedObject.FindProperty("breakThreshold");
         }
 
         public override void OnInspectorGUI()
@@ -55,7 +57,16 @@ namespace Obi
                 }
             }
 
-            EditorGUILayout.PropertyField(targetTransform, new GUIContent("Target"));
+            EditorGUI.BeginChangeCheck();
+            Transform trget = EditorGUILayout.ObjectField("Target", attachment.target, typeof(Transform), true) as Transform;
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(attachment, "Set target");
+                attachment.target = trget;
+                PrefabUtility.RecordPrefabInstancePropertyModifications(attachment);
+            }
+
+
             var blueprint = attachment.actor.sourceBlueprint;
 
             if (blueprint != null)
@@ -89,6 +100,7 @@ namespace Obi
 
             if (attachment.attachmentType == ObiParticleAttachment.AttachmentType.Dynamic)
             {
+                EditorGUILayout.PropertyField(projectPosition, new GUIContent("Projection"));
                 EditorGUILayout.PropertyField(compliance, new GUIContent("Compliance"));
                 EditorGUILayout.PropertyField(breakThreshold, new GUIContent("Break threshold"));
             }

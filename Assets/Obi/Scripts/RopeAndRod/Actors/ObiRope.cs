@@ -178,20 +178,20 @@ namespace Obi
             SetupRuntimeConstraints();
         }
 
-        public override void LoadBlueprint(ObiSolver solver)
+        internal override void LoadBlueprint()
         {
             // create a copy of the blueprint for this cloth:
             if (Application.isPlaying)
                 m_RopeBlueprintInstance = this.blueprint as ObiRopeBlueprint;
 
-            base.LoadBlueprint(solver);
+            base.LoadBlueprint();
             RebuildElementsFromConstraints();
             SetupRuntimeConstraints();
         }
 
-        public override void UnloadBlueprint(ObiSolver solver)
+        internal override void UnloadBlueprint()
         {
-            base.UnloadBlueprint(solver);
+            base.UnloadBlueprint();
 
             // delete the blueprint instance:
             if (m_RopeBlueprintInstance != null)
@@ -202,25 +202,24 @@ namespace Obi
         {
             SetConstraintsDirty(Oni.ConstraintType.Distance);
             SetConstraintsDirty(Oni.ConstraintType.Bending);
+            SetConstraintsDirty(Oni.ConstraintType.Aerodynamics);
             SetSelfCollisions(selfCollisions);
+            SetMassScale(m_MassScale);
             RecalculateRestLength();
             SetSimplicesDirty();
-            UpdateCollisionMaterials();
         }
 
-        public override void Substep(float substepTime)
+        // Tearing must be done at the end of each step instead of substep, to give a chance to solver constraints to be rebuilt.
+        public override void SimulationStart(float timeToSimulate, float substepTime)
         {
-            base.Substep(substepTime);
+            base.SimulationStart(timeToSimulate, substepTime);
 
-            if (isActiveAndEnabled)
+            if (isActiveAndEnabled && tearingEnabled)
                 ApplyTearing(substepTime);
         }
 
         protected void ApplyTearing(float substepTime)
         {
-
-            if (!tearingEnabled)
-                return;
 
             float sqrTime = substepTime * substepTime;
 
@@ -230,24 +229,28 @@ namespace Obi
             var sc = this.solver.GetConstraintsByType(Oni.ConstraintType.Distance) as ObiConstraints<ObiDistanceConstraintsBatch>;
 
             if (dc != null && sc != null)
-            for (int j = 0; j < dc.GetBatchCount(); ++j)
             {
-                var batch = dc.GetBatch(j) as ObiDistanceConstraintsBatch;
-                var solverBatch = sc.batches[j] as ObiDistanceConstraintsBatch;
-
-                for (int i = 0; i < batch.activeConstraintCount; i++)
+                // iterate up to the amount of entries in solverBatchOffsets, insteaf of dc.batchCount. This ensures
+                // the batches we access have been added to the solver, as solver.UpdateConstraints() could have not been called yet on a newly added actor.
+                for (int j = 0; j < solverBatchOffsets[(int)Oni.ConstraintType.Distance].Count; ++j)
                 {
-                    int elementIndex = j + 2 * i;
+                    var batch = dc.GetBatch(j) as ObiDistanceConstraintsBatch;
+                    var solverBatch = sc.batches[j] as ObiDistanceConstraintsBatch;
 
-                    // divide lambda by squared delta time to get force in newtons:
-                    int offset = solverBatchOffsets[(int)Oni.ConstraintType.Distance][j];
-                    float force = solverBatch.lambdas[offset + i] / sqrTime;
-
-                    elements[elementIndex].constraintForce = force;
-
-                    if (-force > tearResistanceMultiplier)
+                    for (int i = 0; i < batch.activeConstraintCount; i++)
                     {
-                        tornElements.Add(elements[elementIndex]);
+                        int elementIndex = j + 2 * i;
+
+                        // divide lambda by squared delta time to get force in newtons:
+                        int offset = solverBatchOffsets[(int)Oni.ConstraintType.Distance][j];
+                        float force = solverBatch.lambdas[offset + i] / sqrTime;
+
+                        elements[elementIndex].constraintForce = force;
+
+                        if (-force > tearResistanceMultiplier)
+                        {
+                            tornElements.Add(elements[elementIndex]);
+                        }
                     }
                 }
             }
@@ -276,14 +279,14 @@ namespace Obi
 
         }
 
-        private int 
-            SplitParticle(int splitIndex)
+        private int SplitParticle(int splitIndex)
         {
             // halve the original particle's mass:
             m_Solver.invMasses[splitIndex] *= 2;
 
             CopyParticle(solver.particleToActor[splitIndex].indexInActor, activeParticleCount);
-            ActivateParticle(activeParticleCount);
+            ActivateParticle();
+            SetRenderingDirty(Oni.RenderingSystemType.AllRopes);
 
             return solverIndices[activeParticleCount - 1];
         }
@@ -310,8 +313,7 @@ namespace Obi
 
             element.particle1 = SplitParticle(element.particle1);
 
-            if (OnRopeTorn != null)
-                OnRopeTorn(this, new ObiRopeTornEventArgs(element, element.particle1));
+            OnRopeTorn?.Invoke(this, new ObiRopeTornEventArgs(element, element.particle1));
 
             return true;
         }
@@ -319,7 +321,7 @@ namespace Obi
         protected override void RebuildElementsFromConstraintsInternal()
         {
             var dc = GetConstraintsByType(Oni.ConstraintType.Distance) as ObiConstraints<ObiDistanceConstraintsBatch>;
-            if (dc == null || dc.GetBatchCount() < 2)
+            if (dc == null || dc.batchCount < 2)
                 return;
 
             int constraintCount = dc.batches[0].activeConstraintCount + dc.batches[1].activeConstraintCount;
@@ -357,13 +359,26 @@ namespace Obi
             // regenerate constraints from elements:
             var dc = GetConstraintsByType(Oni.ConstraintType.Distance) as ObiConstraints<ObiDistanceConstraintsBatch>;
             var bc = GetConstraintsByType(Oni.ConstraintType.Bending) as ObiConstraints<ObiBendConstraintsBatch>;
+            var ac = GetConstraintsByType(Oni.ConstraintType.Aerodynamics) as ObiConstraints<ObiAerodynamicConstraintsBatch>;
 
             dc.DeactivateAllConstraints();
             bc.DeactivateAllConstraints();
+            ac.DeactivateAllConstraints();
+
+            for (int i = 0; i < activeParticleCount; ++i)
+            {
+                // aerodynamic constraints:
+                var ab = ac.batches[0] as ObiAerodynamicConstraintsBatch;
+                int constraint = ab.activeConstraintCount;
+                ab.particleIndices[constraint] = i;
+                ab.aerodynamicCoeffs[constraint * 3] = 2 * solver.principalRadii[solverIndices[i]].x;
+                ab.ActivateConstraint(constraint);
+            }
 
             int elementsCount = elements.Count - (ropeBlueprint.path.Closed ? 1 : 0);
             for (int i = 0; i < elementsCount; ++i)
             {
+                // distance constraints
                 var db = dc.batches[i % 2] as ObiDistanceConstraintsBatch;
                 int constraint = db.activeConstraintCount;
 
@@ -373,6 +388,7 @@ namespace Obi
                 db.stiffnesses[constraint] = new Vector2(_stretchCompliance, _maxCompression * db.restLengths[constraint]);
                 db.ActivateConstraint(constraint);
 
+                // bend constraints
                 if (i < elementsCount - 1)
                 {
                     var bb = bc.batches[i % 3] as ObiBendConstraintsBatch;
@@ -385,7 +401,7 @@ namespace Obi
                         int indexA = elements[i].particle1;
                         int indexB = elements[i + 1].particle2;
                         int indexC = elements[i].particle2;
-                        float restBend = ObiUtils.RestBendingConstraint(solver.restPositions[indexA], solver.restPositions[indexB], solver.restPositions[indexC]);
+                        float restBend = 0;//ObiUtils.RestBendingConstraint(solver.restPositions[indexA], solver.restPositions[indexB], solver.restPositions[indexC]);
 
                         bb.particleIndices[constraint * 3] = solver.particleToActor[indexA].indexInActor;
                         bb.particleIndices[constraint * 3 + 1] = solver.particleToActor[indexB].indexInActor;
@@ -431,16 +447,21 @@ namespace Obi
                 loopClosingBatch.ActivateConstraint(0);
             }
 
-            // edge simplices:
-            sharedBlueprint.edges = new int[elements.Count*2];
+            // edge simplices and deformable edges
+            var rb = sharedBlueprint as ObiRopeBlueprint;
+            rb.edges = new int[elements.Count * 2];
+            rb.deformableEdges = new int[elements.Count * 2];
             for (int i = 0; i < elements.Count; ++i)
             {
-                sharedBlueprint.edges[i * 2] =     solver.particleToActor[elements[i].particle1].indexInActor;
-                sharedBlueprint.edges[i * 2 + 1] = solver.particleToActor[elements[i].particle2].indexInActor;
+                rb.deformableEdges[i * 2] = rb.edges[i * 2] = solver.particleToActor[elements[i].particle1].indexInActor;
+                rb.deformableEdges[i * 2 + 1] = rb.edges[i * 2 + 1] = solver.particleToActor[elements[i].particle2].indexInActor;
             }
 
             SetConstraintsDirty(Oni.ConstraintType.Distance);
             SetConstraintsDirty(Oni.ConstraintType.Bending);
+            SetConstraintsDirty(Oni.ConstraintType.Aerodynamics);
+
+            solver.dirtyDeformableEdges = true;
             SetSimplicesDirty();
         }
     }

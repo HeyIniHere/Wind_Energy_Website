@@ -1,63 +1,71 @@
 ﻿using UnityEngine;
-using Obi;
 
-public class RopeBetweenTwoPoints : MonoBehaviour
+namespace Obi.Samples
 {
-    public Transform start;
-    public Transform end;
-    public ObiSolver solver;
-
-    void Start()
+    public class RopeBetweenTwoPoints : MonoBehaviour
     {
-        // Generate rope synchronously:
-        Generate();
-    }
+        public Transform start;
+        public Transform end;
+        public ObiSolver solver;
 
-    void Generate()
-    {
-        if (start != null && end != null)
+        public bool fixedParticleCount = true;
+        public int numParticles = 5;
+
+        void Start()
         {
-            // Adjust our transform:
-            transform.position = (start.position + end.position) / 2;
-            transform.rotation = Quaternion.FromToRotation(Vector3.right, end.position - start.position);
+            // Generate rope synchronously:
+            Generate();
+        }
 
-            // Calculate control point positions and tangent vector:
-            Vector3 startPositionLS = transform.InverseTransformPoint(start.position);
-            Vector3 endPositionLS = transform.InverseTransformPoint(end.position);
-            Vector3 tangentLS = (endPositionLS - startPositionLS).normalized;
+        void Generate()
+        {
+            if (start != null && end != null)
+            {
+                // Adjust our transform:
+                transform.position = (start.position + end.position) / 2;
+                transform.rotation = Quaternion.FromToRotation(Vector3.right, end.position - start.position);
 
-            // Create the blueprint: 
-            var blueprint = ScriptableObject.CreateInstance<ObiRopeBlueprint>();
+                // Calculate control point positions and tangent vector:
+                Vector3 startPositionLS = transform.InverseTransformPoint(start.position);
+                Vector3 endPositionLS = transform.InverseTransformPoint(end.position);
+                Vector3 tangentLS = (endPositionLS - startPositionLS).normalized;
 
-            // Build the rope path:
-            int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
-            blueprint.path.AddControlPoint(startPositionLS, -tangentLS, tangentLS, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "start");
-            blueprint.path.AddControlPoint(endPositionLS, -tangentLS, tangentLS, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "end");
-            blueprint.path.FlushEvents();
+                // Create the blueprint: 
+                var blueprint = ScriptableObject.CreateInstance<ObiRopeBlueprint>();
 
-            // Generate particles/constraints:
-            blueprint.GenerateImmediate();
+                // Build the rope path:
+                int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
+                blueprint.path.AddControlPoint(startPositionLS, -tangentLS, tangentLS, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "start");
+                blueprint.path.AddControlPoint(endPositionLS, -tangentLS, tangentLS, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "end");
+                blueprint.path.FlushEvents();
 
-            // Add rope actor / renderer / attachment components:
-            var rope = gameObject.AddComponent<ObiRope>();
-            var ropeRenderer = gameObject.AddComponent<ObiRopeExtrudedRenderer>();
-            var attachment1 = gameObject.AddComponent<ObiParticleAttachment>();
-            var attachment2 = gameObject.AddComponent<ObiParticleAttachment>();
+                if (fixedParticleCount)
+                    blueprint.resolution = numParticles / (blueprint.path.Length / blueprint.thickness);
 
-            // Load the default rope section for rendering:
-            ropeRenderer.section = Resources.Load<ObiRopeSection>("DefaultRopeSection");
+                // Generate particles/constraints:
+                blueprint.GenerateImmediate();
 
-            // Set the blueprint:
-            rope.ropeBlueprint = blueprint;
+                // Add rope actor / renderer / attachment components:
+                var rope = gameObject.AddComponent<ObiRope>();
+                var ropeRenderer = gameObject.AddComponent<ObiRopeExtrudedRenderer>();
+                var attachment1 = gameObject.AddComponent<ObiParticleAttachment>();
+                var attachment2 = gameObject.AddComponent<ObiParticleAttachment>();
 
-            // Attach both ends:
-            attachment1.target = start;
-            attachment2.target = end;
-            attachment1.particleGroup = blueprint.groups[0];
-            attachment2.particleGroup = blueprint.groups[1];
+                // Load the default rope section for rendering:
+                ropeRenderer.section = Resources.Load<ObiRopeSection>("DefaultRopeSection");
 
-            // Parent the actor under a solver to start the simulation:
-            transform.SetParent(solver.transform);
+                // Set the blueprint:
+                rope.ropeBlueprint = blueprint;
+
+                // Attach both ends:
+                attachment1.target = start;
+                attachment2.target = end;
+                attachment1.particleGroup = blueprint.groups[0];
+                attachment2.particleGroup = blueprint.groups[1];
+
+                // Parent the actor under a solver to start the simulation:
+                transform.SetParent(solver.transform);
+            }
         }
     }
 }

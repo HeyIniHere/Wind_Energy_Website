@@ -50,6 +50,7 @@ namespace Obi
                 convexRadii += radii[particle] * convexBary[j];
                 convexOrientation.value += orientations[particle].value * convexBary[j];
             }
+            convexPoint.w = 0;
         }
 
         public static SurfacePoint Optimize<T>(ref T function,
@@ -112,6 +113,7 @@ namespace Obi
                 {
                     int particle = simplices[simplexStart + j];
                     float4 candidate = positions[particle] - convexPoint;
+                    candidate.w = 0;
 
                     // here, we adjust the candidate by projecting it to the engrosed simplex's surface:
                     candidate -= pointInFunction.normal * (radii[particle].x - convexThickness.x);
@@ -176,6 +178,8 @@ namespace Obi
 
                 float4 candidateC = positions[simplices[simplexStart]] - pointInFunction.point;
                 float4 candidateD = positions[simplices[simplexStart + 1]] - pointInFunctionD.point;
+                candidateC.w = 0;
+                candidateD.w = 0;
 
                 candidateC -= pointInFunction.normal * (radii[simplices[simplexStart]].x - convexThickness.x);
                 candidateD -= pointInFunctionD.normal * (radii[simplices[simplexStart + 1]].x - convexThicknessD.x);

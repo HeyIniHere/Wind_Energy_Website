@@ -1,6 +1,7 @@
 ﻿#if (OBI_BURST && OBI_MATHEMATICS && OBI_COLLECTIONS)
 using Unity.Collections;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace Obi
 {
@@ -17,7 +18,7 @@ namespace Obi
 
             // express ray in simplex space (ellipsoid == scaled sphere)
             float4 rayOrigin = math.mul(colliderToSimplex, new float4(shape.center.xyz,1));
-            float4 rayDirection = math.normalizesafe(math.mul(colliderToSimplex, new float4((shape.size - shape.center).xyz,0)));
+            float4 rayDirection = math.normalizesafe(math.mul(colliderToSimplex, new float4(shape.size.xyz,0)));
 
             float rayDistance = ObiUtils.RaySphereIntersection(rayOrigin.xyz, rayDirection.xyz, float3.zero, 1);
 
@@ -25,7 +26,7 @@ namespace Obi
             {
                 point = colliderToSolver.InverseTransformPointUnscaled(point);
 
-                float4 centerLine = BurstMath.NearestPointOnEdge(shape.center * colliderToSolver.scale, shape.size * colliderToSolver.scale, point, out float mu);
+                float4 centerLine = BurstMath.NearestPointOnEdge(shape.center * colliderToSolver.scale, (shape.center + shape.size) * colliderToSolver.scale, point, out float mu);
                 float4 centerToPoint = point - centerLine;
                 float distanceToCenter = math.length(centerToPoint);
 
@@ -57,17 +58,33 @@ namespace Obi
                              int optimizationIterations,
                              float optimizationTolerance)
         {
-            var co = new BurstQueryResult() { simplexIndex = simplexIndex, queryIndex = shapeIndex };
+            var co = new BurstQueryResult { simplexIndex = simplexIndex, queryIndex = shapeIndex };
             float4 simplexBary = BurstMath.BarycenterForSimplexOfSize(simplexSize);
 
-            var colliderPoint = BurstLocalOptimization.Optimize<BurstRay>(ref this, positions, orientations, radii, simplices, simplexStart, simplexSize,
-                                                                          ref simplexBary, out float4 convexPoint, optimizationIterations, optimizationTolerance);
+            var colliderPoint = BurstLocalOptimization.Optimize(ref this, positions, orientations, radii, simplices, simplexStart, simplexSize,
+                                                                ref simplexBary, out float4 convexPoint, optimizationIterations, optimizationTolerance);
 
-            co.queryPoint = colliderPoint.point;
+            float4 simplexPrevPosition = float4.zero;
+            float simplexRadius = 0;
+
+            for (int j = 0; j < simplexSize; ++j)
+            {
+                int particleIndex = simplices[simplexStart + j];
+                simplexPrevPosition += positions[particleIndex] * simplexBary[j];
+                simplexRadius += BurstMath.EllipsoidRadius(colliderPoint.normal, orientations[particleIndex], radii[particleIndex].xyz) * simplexBary[j];
+            }
+
+            co.queryPoint = colliderPoint.point;  
             co.normal = colliderPoint.normal;
             co.simplexBary = simplexBary;
+            co.distance = math.dot(simplexPrevPosition - colliderPoint.point, colliderPoint.normal) - simplexRadius;
 
-            results.Enqueue(co);
+            if (co.distance <= shape.maxDistance)
+            {
+                float4 pointOnRay = colliderPoint.point + colliderPoint.normal * co.distance;
+                co.distanceAlongRay = math.dot(pointOnRay.xyz - shape.center.xyz, math.normalizesafe(shape.size.xyz));
+                results.Enqueue(co);
+            }
         }
     }
 

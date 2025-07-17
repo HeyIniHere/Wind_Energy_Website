@@ -110,7 +110,7 @@ namespace Obi
 
 			EnsureCapacity(++count);
 
-	        for (int i = count-1; i > index; ++i)
+	        for (int i = count-1; i > index; --i)
 			{
 				data[i] = data[i-1];
 			}

@@ -126,6 +126,13 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            firstTriangle.Dispose();
+            numTriangles.Dispose();
+            restVolumes.Dispose();
+            pressureStiffness.Dispose();
+
             //Remove batch:
             solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

@@ -9,7 +9,7 @@ namespace Obi
         public float4 size;
         public QueryShape.QueryType type;
         public float contactOffset;
-        public float distance;
+        public float maxDistance;
         public int filter;
     }
 }

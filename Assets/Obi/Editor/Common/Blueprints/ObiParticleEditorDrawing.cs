@@ -32,7 +32,7 @@ namespace Obi
             GameObject.DestroyImmediate(particlesMesh);
         }
 
-        public static void DrawParticles(Camera cam, ObiActorBlueprint blueprint, int activeParticle, bool[] visible, Color[] baseColor, int[] sortedIndices, float radiusScale = 1)
+        public static void DrawParticles(Camera cam, ObiActorBlueprint blueprint, bool[] visible, Color[] baseColor, int[] sortedIndices, float radiusScale = 1)
         {
             CreateParticlesMesh();
             CreateParticleMaterials();

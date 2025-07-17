@@ -36,17 +36,17 @@ namespace Obi{
             }
         }
 
-	    public void OnEnable()
+        private void OnEnable()
         {
             UpdateMaterial();
         }
 
-	    public void OnDisable()
+        private void OnDisable()
         {
             ObiColliderWorld.GetInstance().DestroyCollisionMaterial(materialHandle);
         }
 
-        public void OnValidate()
+        private void OnValidate()
         {
             // we can't create GameObjects in OnValidate(), so make sure the colliderworld already exists.
             UpdateMaterial();

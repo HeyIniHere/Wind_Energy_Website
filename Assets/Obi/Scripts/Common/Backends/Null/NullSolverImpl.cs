@@ -1,12 +1,20 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System;
 
 namespace Obi
 {
     public class NullSolverImpl : ISolverImpl
     {
+        public uint activeFoamParticleCount { private set; get; }
 
         public void Destroy()
+        {
+        }
+
+        public void PushData()
+        {
+        }
+        public void RequestReadback()
         {
         }
 
@@ -18,21 +26,24 @@ namespace Obi
         {
         }
 
-        public void ApplyFrame(float worldLinearInertiaScale, float worldAngularInertiaScale, float deltaTime)
+        public IObiJobHandle ApplyFrame(float worldLinearInertiaScale, float worldAngularInertiaScale, float deltaTime)
         {
+            return null;
         }
 
-        public int GetDeformableTriangleCount()
+        public IObiJobHandle ApplyForceZones(ObiNativeForceZoneList zones, ObiNativeAffineTransformList transforms)
         {
-            return 0;
+            return null;
         }
-        public void SetDeformableTriangles(int[] indices, int num, int destOffset)
+
+        public void SetDeformableTriangles(ObiNativeIntList indices, ObiNativeVector2List uvs)
         {
            
         }
-        public int RemoveDeformableTriangles(int num, int sourceOffset)
+
+        public void SetDeformableEdges(ObiNativeIntList indices)
         {
-            return 0;
+
         }
 
         public void SetSimplices(ObiNativeIntList simplices, SimplexCounts counts)
@@ -43,15 +54,16 @@ namespace Obi
         {
         }
 
+        public void MaxFoamParticleCountChanged(ObiSolver solver)
+        {
+
+        }
+
         public void SetRigidbodyArrays(ObiSolver solver)
         {
         }
 
         public void SetActiveParticles(ObiNativeIntList indices)
-        {
-        }
-
-        public void ResetForces()
         {
         }
 
@@ -68,14 +80,6 @@ namespace Obi
             return 0;
         }
 
-        public void GetCollisionContacts(Oni.Contact[] contacts, int count)
-        {
-        }
-
-        public void GetParticleCollisionContacts(Oni.Contact[] contacts, int count)
-        {
-        }
-
         public void SetConstraintGroupParameters(Oni.ConstraintType type, ref Oni.ConstraintParameters parameters)
         {
         }
@@ -89,22 +93,29 @@ namespace Obi
         {
         }
 
-        public IObiJobHandle CollisionDetection(float stepTime)
+        public void FinishSimulation()
+        {
+
+        }
+
+        public IObiJobHandle UpdateBounds(IObiJobHandle inputDeps, float stepTime)
         {
             return null;
         }
 
-        public IObiJobHandle Substep(float stepTime, float substepTime, int index)
+        public IObiJobHandle CollisionDetection(IObiJobHandle inputDeps, float stepTime)
         {
             return null;
         }
 
-        public void ApplyInterpolation(ObiNativeVector4List startPositions, ObiNativeQuaternionList startOrientations, float stepTime, float unsimulatedTime)
+        public IObiJobHandle Substep(IObiJobHandle inputDeps, float stepTime, float substepTime, int index, float timeLeft)
         {
+            return null;
         }
 
-        public void InterpolateDiffuseProperties(ObiNativeVector4List properties, ObiNativeVector4List diffusePositions, ObiNativeVector4List diffuseProperties, ObiNativeIntList neighbourCount, int diffuseCount)
+        public IObiJobHandle ApplyInterpolation(IObiJobHandle inputDeps, ObiNativeVector4List startPositions, ObiNativeQuaternionList startOrientations, float stepTime, float unsimulatedTime)
         {
+            return null;
         }
 
         public int GetParticleGridSize()
@@ -118,11 +129,6 @@ namespace Obi
 
         public void SpatialQuery(ObiNativeQueryShapeList shapes, ObiNativeAffineTransformList transforms, ObiNativeQueryResultList results)
         {
-        }
-
-        public void ReleaseJobHandles()
-        {
-
         }
     }
 }

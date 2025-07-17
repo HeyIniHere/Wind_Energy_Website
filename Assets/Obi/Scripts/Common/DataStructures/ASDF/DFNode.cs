@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace Obi
@@ -13,9 +12,11 @@ namespace Obi
         public int firstChild;
 
         // add 12 bytes of padding to ensure correct memory alignment:
+#pragma warning disable 0414
         private int pad0;
         private int pad1;
         private int pad2;
+#pragma warning restore 0414
 
         public DFNode(Vector4 center)
         {

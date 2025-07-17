@@ -20,6 +20,8 @@ namespace Obi
         [HideInInspector] public List<int> parentIndices = new List<int>();
         [HideInInspector] public List<float> normalizedLengths = new List<float>();
 
+        [HideInInspector] public int[] deformableEdges = null;    /**< Indices of deformable edges (2 per edge)*/
+
         [HideInInspector] [NonSerialized] public List<ObiBone.IgnoredBone> ignored;
         [HideInInspector] [NonSerialized] public ObiBone.BonePropertyCurve mass;
         [HideInInspector] [NonSerialized] public ObiBone.BonePropertyCurve rotationalMass;
@@ -35,6 +37,24 @@ namespace Obi
                 if (ignored[i].bone == bone)
                     return ignored[i];
 
+            return null;
+        }
+
+        public ObiBoneOverride GetOverride(int particleIndex, out float normalizedLength)
+        {
+            int overrideIndex = particleIndex;
+            normalizedLength = normalizedLengths[overrideIndex];
+
+            while (overrideIndex >= 0)
+            {
+                if (transforms[overrideIndex].TryGetComponent(out ObiBoneOverride over))
+                {
+                    normalizedLength = 1 - (1 - normalizedLengths[particleIndex]) / Mathf.Max(ObiUtils.epsilon,1 - normalizedLengths[overrideIndex]);
+                    return over;
+                }
+
+                overrideIndex = parentIndices[overrideIndex];
+            }
             return null;
         }
 
@@ -164,11 +184,20 @@ namespace Obi
                 filters[i] = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
                 colors[i] = Color.white;
 
+                var group = ScriptableObject.CreateInstance<ObiParticleGroup>();
+                group.SetSourceBlueprint(this);
+                group.name = transforms[i].name;
+                group.particleIndices.Add(i);
+                groups.Add(group);
+
                 if (i % 100 == 0)
                     yield return new CoroutineJob.ProgressInfo("ObiRod: generating particles...", i / (float)m_ActiveParticleCount);
             }
 
             colorizer = new GraphColoring(m_ActiveParticleCount);
+
+            // Deformable edges:
+            CreateDeformableEdges();
 
             // Create edge simplices:
             CreateSimplices();
@@ -185,7 +214,21 @@ namespace Obi
             IEnumerator sc = CreateSkinConstraints(particlePositions);
             while (sc.MoveNext()) yield return sc.Current;
 
+            // Create aerodynamic constraints:
+            IEnumerator ac = CreateAerodynamicConstraints();
+            while (ac.MoveNext()) yield return ac.Current;
+
             yield return new CoroutineJob.ProgressInfo("ObiBone: complete", 1);
+        }
+
+        protected void CreateDeformableEdges()
+        {
+            deformableEdges = new int[(parentIndices.Count - 1) * 2];
+            for (int i = 0; i < parentIndices.Count - 1; ++i)
+            {
+                deformableEdges[i * 2] = i + 1;
+                deformableEdges[i * 2 + 1] = parentIndices[i + 1];
+            }
         }
 
         protected void CreateSimplices()
@@ -198,9 +241,29 @@ namespace Obi
             }
         }
 
+        protected virtual IEnumerator CreateAerodynamicConstraints()
+        {
+            aerodynamicConstraintsData = new ObiAerodynamicConstraintsData();
+            var aeroBatch = new ObiAerodynamicConstraintsBatch();
+            aerodynamicConstraintsData.AddBatch(aeroBatch);
+
+            for (int i = 0; i < m_ActiveParticleCount; i++)
+            {
+                aeroBatch.AddConstraint(i, 2 * principalRadii[i].x, 1, 1);
+
+                if (i % 500 == 0)
+                    yield return new CoroutineJob.ProgressInfo("ObiRope generating aerodynamic constraints...", i / (float)m_ActiveParticleCount);
+            }
+
+            // Set initial amount of active constraints:
+            for (int i = 0; i < aerodynamicConstraintsData.batches.Count; ++i)
+            {
+                aerodynamicConstraintsData.batches[i].activeConstraintCount = m_ActiveParticleCount;
+            }
+        }
+
         protected virtual IEnumerator CreateStretchShearConstraints(List<Vector3> particlePositions)
         {
-
             colorizer.Clear();
 
             for (int i = 1; i < particlePositions.Count; ++i)
@@ -228,7 +291,7 @@ namespace Obi
                 int cIndex = constraintIndices[i];
 
                 // Add a new batch if needed:
-                if (color >= stretchShearConstraintsData.GetBatchCount())
+                if (color >= stretchShearConstraintsData.batchCount)
                     stretchShearConstraintsData.AddBatch(new ObiStretchShearConstraintsBatch());
 
                 int index1 = particleIndices[cIndex];
@@ -274,7 +337,7 @@ namespace Obi
                 int cIndex = constraintIndices[i];
 
                 // Add a new batch if needed:
-                if (color >= bendTwistConstraintsData.GetBatchCount())
+                if (color >= bendTwistConstraintsData.batchCount)
                     bendTwistConstraintsData.AddBatch(new ObiBendTwistConstraintsBatch());
 
                 int index1 = particleIndices[cIndex];

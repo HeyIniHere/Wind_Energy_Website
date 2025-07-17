@@ -9,6 +9,14 @@ namespace Obi{
 	{
         ObiTriangleMeshHandle handle;
 
+        public Mesh targetMesh
+        {
+            get {
+                var mc = collider as MeshCollider;
+                return mc?.sharedMesh;
+            }
+        }
+
 		public ObiMeshShapeTracker(ObiCollider source, MeshCollider collider){
 
             this.source = source;
@@ -23,7 +31,7 @@ namespace Obi{
             ObiColliderWorld.GetInstance().DestroyTriangleMesh(handle);
         }
 	
-		public override bool UpdateIfNeeded ()
+		public override void UpdateIfNeeded ()
         {
 
             MeshCollider meshCollider = collider as MeshCollider;
@@ -51,9 +59,11 @@ namespace Obi{
             var shape = world.colliderShapes[index];
             shape.type = ColliderShape.ShapeType.TriangleMesh;
             shape.filter = source.Filter;
-            shape.flags = meshCollider.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = meshCollider.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.dataIndex = handle.index;
             world.colliderShapes[index] = shape;
@@ -65,10 +75,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(meshCollider.transform);
+            trfm.FromTransform3D(meshCollider.transform, source.Rigidbody as ObiRigidbody);
             world.colliderTransforms[index] = trfm;
-
-            return true;
         }
 
 		public override void Destroy()

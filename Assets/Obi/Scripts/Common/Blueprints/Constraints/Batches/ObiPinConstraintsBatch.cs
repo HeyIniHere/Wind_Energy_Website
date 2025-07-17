@@ -8,12 +8,12 @@ namespace Obi
     [Serializable]
     public class ObiPinConstraintsBatch : ObiConstraintsBatch
     {
-        protected IPinConstraintsBatchImpl m_BatchImpl;  
+        protected IPinConstraintsBatchImpl m_BatchImpl;
 
         /// <summary>
         /// for each constraint, handle of the pinned collider.
         /// </summary>
-        [HideInInspector] public List<ObiColliderHandle> pinBodies = new List<ObiColliderHandle>();                        
+        [HideInInspector] public List<ObiColliderHandle> pinBodies = new List<ObiColliderHandle>();
 
         /// <summary>
         /// index of the pinned collider in the collider world.
@@ -23,22 +23,17 @@ namespace Obi
         /// <summary>
         /// Pin position expressed in the attachment's local space.
         /// </summary>
-        [HideInInspector] public ObiNativeVector4List offsets = new ObiNativeVector4List();                        
+        [HideInInspector] public ObiNativeVector4List offsets = new ObiNativeVector4List();
 
         /// <summary>
         /// Rest Darboux vector for each constraint.
         /// </summary>
-        [HideInInspector] public ObiNativeQuaternionList restDarbouxVectors = new ObiNativeQuaternionList();        
+        [HideInInspector] public ObiNativeQuaternionList restDarbouxVectors = new ObiNativeQuaternionList();
 
         /// <summary>
         /// Compliances of pin constraits. 2 float per constraint (positional and rotational compliance).
         /// </summary>
-        [HideInInspector] public ObiNativeFloatList stiffnesses = new ObiNativeFloatList();                        
-
-        /// <summary>
-        /// One float per constraint: break threshold.
-        /// </summary>
-        [HideInInspector] public ObiNativeFloatList breakThresholds = new ObiNativeFloatList();                     
+        [HideInInspector] public ObiNativeFloatList stiffnesses = new ObiNativeFloatList();
 
         public override Oni.ConstraintType constraintType
         {
@@ -54,18 +49,17 @@ namespace Obi
         {
         }
 
-        public void AddConstraint(int solverIndex, ObiColliderBase body, Vector3 offset, Quaternion restDarboux, float linearCompliance, float rotationalCompliance, float breakThreshold)
+        public void AddConstraint(int solverIndex, ObiColliderBase body, Vector3 offset, Quaternion restDarboux, float linearCompliance, float rotationalCompliance, bool projectRenderable = false)
         {
             RegisterConstraint();
 
             particleIndices.Add(solverIndex);
             pinBodies.Add(body != null ? body.Handle : new ObiColliderHandle());
             colliderIndices.Add(body != null ? body.Handle.index : -1);
-            offsets.Add(offset);
+            offsets.Add(new Vector4(offset.x, offset.y, offset.z, projectRenderable ? 1:0));
             restDarbouxVectors.Add(restDarboux);
             stiffnesses.Add(linearCompliance);
             stiffnesses.Add(rotationalCompliance);
-            breakThresholds.Add(breakThreshold);
         }
 
         public override void Clear()
@@ -108,13 +102,11 @@ namespace Obi
                 offsets.ResizeUninitialized(m_ActiveConstraintCount + batch.activeConstraintCount);
                 restDarbouxVectors.ResizeUninitialized(m_ActiveConstraintCount + batch.activeConstraintCount);
                 stiffnesses.ResizeUninitialized((m_ActiveConstraintCount + batch.activeConstraintCount) * 2);
-                breakThresholds.ResizeUninitialized(m_ActiveConstraintCount + batch.activeConstraintCount);
                 lambdas.ResizeInitialized((m_ActiveConstraintCount + batch.activeConstraintCount) * 4);
 
                 offsets.CopyFrom(batch.offsets, 0, m_ActiveConstraintCount, batch.activeConstraintCount);
                 restDarbouxVectors.CopyFrom(batch.restDarbouxVectors, 0, m_ActiveConstraintCount, batch.activeConstraintCount);
                 stiffnesses.CopyFrom(batch.stiffnesses, 0, m_ActiveConstraintCount * 2, batch.activeConstraintCount * 2);
-                breakThresholds.CopyFrom(batch.breakThresholds, 0, m_ActiveConstraintCount, batch.activeConstraintCount);
 
                 for (int i = 0; i < batch.activeConstraintCount; ++i)
                 {
@@ -139,6 +131,13 @@ namespace Obi
 
         public override void RemoveFromSolver(ObiSolver solver)
         {
+            base.RemoveFromSolver(solver);
+
+            restDarbouxVectors.Dispose();
+            colliderIndices.Dispose();
+            offsets.Dispose();
+            stiffnesses.Dispose();
+
             if (solver != null && solver.implementation != null)
                 solver.implementation.DestroyConstraintsBatch(m_BatchImpl as IConstraintsBatchImpl);
         }

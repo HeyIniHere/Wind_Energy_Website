@@ -85,7 +85,7 @@ namespace Obi
 
             EditorGUI.BeginChangeCheck();
             meshBasedEditor.particleCulling = (ObiMeshBasedActorBlueprintEditor.ParticleCulling)EditorGUILayout.EnumPopup("Culling", meshBasedEditor.particleCulling);
-            if (editor.selectedCount == 0)
+            if (ObiActorBlueprintEditor.selectedCount == 0)
             {
                 EditorGUILayout.HelpBox("Select at least one particle to use selection mask.", MessageType.Info);
                 selectionMask = false;
@@ -111,13 +111,16 @@ namespace Obi
 
         public override bool Editable(int index)
         {
-            return editor.visible[index] && (!selectionMask || editor.selectionStatus[index]);
+            return editor.visible[index] && (!selectionMask || ObiActorBlueprintEditor.selectionStatus[index]);
         }
 
         public override void OnSceneGUI(SceneView view)
         {
             if (Camera.current != null)
             {
+                var blueprint = meshBasedEditor.blueprint as ObiMeshBasedActorBlueprint;
+                paintBrush.raycastTransform = blueprint != null ? Matrix4x4.TRS(Vector3.zero, blueprint.rotation, blueprint.scale) : Matrix4x4.identity;
+
                 paintBrush.raycastTarget = meshBasedEditor.sourceMesh;
                 paintBrush.DoBrush(editor.blueprint.positions);
             }

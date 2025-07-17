@@ -37,7 +37,7 @@ namespace Obi
 
         public void OnEnable()
         {
-            material = GameObject.Instantiate(Resources.Load<Material>("ObiMaterials/DistanceFieldRendering"));
+            material = GameObject.Instantiate(Resources.Load<Material>("ObiMaterials/DistanceFields/DistanceFieldRendering"));
             material.hideFlags = HideFlags.HideAndDontSave;
         }
 

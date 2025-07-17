@@ -8,7 +8,6 @@ namespace Obi
     /**
      * This component plugs a prefab instance at each cut in the rope. Optionally, it will also place a couple instances at the start/end of an open rope.
      */
-    [RequireComponent(typeof(ObiRope))]
     [RequireComponent(typeof(ObiPathSmoother))]
     public class ObiRopePrefabPlugger : MonoBehaviour
     {
@@ -25,12 +24,12 @@ namespace Obi
         {
             instances = new List<GameObject>();
             smoother = GetComponent<ObiPathSmoother>();
-            smoother.OnCurveGenerated += UpdatePlugs;
+            GetComponent<ObiActor>().OnInterpolate += UpdatePlugs;
         }
 
         void OnDisable()
         {
-            smoother.OnCurveGenerated -= UpdatePlugs;
+            GetComponent<ObiActor>().OnInterpolate -= UpdatePlugs;
             ClearPrefabInstances();
         }
 
@@ -54,43 +53,46 @@ namespace Obi
         }
 
         // Update is called once per frame
-        void UpdatePlugs(ObiActor actor)
+        void UpdatePlugs(ObiActor actor, float simulatedTime, float substepTime)
         {
-            var rope = actor as ObiRopeBase;
+            if (!actor.isLoaded)
+                return;
 
             // cache the rope's transform matrix/quaternion:
-            Matrix4x4 l2w = rope.transform.localToWorldMatrix;
+            Matrix4x4 l2w = smoother.actor.solver.transform.localToWorldMatrix;
             Quaternion l2wRot = l2w.rotation;
 
             int instanceIndex = 0;
 
-            // place prefabs at the start/end of each curve:
-            for (int c = 0; c < smoother.smoothChunks.Count; ++c)
-            {
-                ObiList<ObiPathFrame> curve = smoother.smoothChunks[c];
+            var system = actor.solver.GetRenderSystem<ObiPathSmoother>() as ObiPathSmootherRenderSystem;
+            int chunkCount = system.GetChunkCount(smoother.indexInSystem);
 
+            // place prefabs at the start/end of each curve:
+            for (int c = 0; c < chunkCount; ++c)
+            {
                 if ((plugTears && c > 0) ||
                     (plugStart && c == 0))
                 {
                     var instance = GetOrCreatePrefabInstance(instanceIndex++);
                     instance.SetActive(true);
 
-                    ObiPathFrame frame = curve[0];
+                    ObiPathFrame frame = system.GetFrameAt(smoother.indexInSystem, c, 0);
                     instance.transform.position = l2w.MultiplyPoint3x4(frame.position);
                     instance.transform.rotation = l2wRot * (Quaternion.LookRotation(-frame.tangent, frame.binormal));
                     instance.transform.localScale = instanceScale;
                 }
 
-                if ((plugTears && c < smoother.smoothChunks.Count - 1) ||
-                    (plugEnd && c == smoother.smoothChunks.Count - 1))
-                {
 
+                if ((plugTears && c < chunkCount - 1) ||
+                    (plugEnd && c == chunkCount - 1))
+                {
                     var instance = GetOrCreatePrefabInstance(instanceIndex++);
                     instance.SetActive(true);
 
-                    ObiPathFrame frame = curve[curve.Count - 1];
+                    int frameCount = system.GetSmoothFrameCount(smoother.indexInSystem, c);
+                    ObiPathFrame frame = system.GetFrameAt(smoother.indexInSystem, c, frameCount-1);
                     instance.transform.position = l2w.MultiplyPoint3x4(frame.position);
-                    instance.transform.rotation = l2wRot * (Quaternion.LookRotation(frame.tangent, frame.binormal));
+                    instance.transform.rotation = l2wRot * Quaternion.LookRotation(frame.tangent, frame.binormal);
                     instance.transform.localScale = instanceScale;
                 }
 

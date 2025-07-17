@@ -1,7 +1,10 @@
-﻿using UnityEngine;
-using System;
-using System.Collections;
+﻿using System;
 using System.Runtime.InteropServices;
+
+#if (OBI_MATHEMATICS)
+using Unity.Mathematics;
+#endif
+
 
 namespace Obi
 {
@@ -29,5 +32,10 @@ namespace Obi
             this.z = x;
             this.w = x;
         }
+
+#if (OBI_MATHEMATICS)
+        public static implicit operator VInt4(int4 i) => new VInt4(i.x, i.y, i.z, i.w);
+        public static implicit operator int4(VInt4 i) => new int4(i.x, i.y, i.z, i.w);
+#endif
     }
 }

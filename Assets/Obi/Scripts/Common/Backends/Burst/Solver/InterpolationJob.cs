@@ -3,38 +3,49 @@ using Unity.Jobs;
 using Unity.Collections;
 using Unity.Mathematics;
 using Unity.Burst;
+using UnityEngine;
 
 namespace Obi
 {
     [BurstCompile]
     struct InterpolationJob : IJobParallelFor
     {
-        [ReadOnly] public NativeArray<float4> startPositions;
         [ReadOnly] public NativeArray<float4> positions;
+        [ReadOnly] public NativeArray<float4> startPositions;
+        [ReadOnly] public NativeArray<float4> endPositions;
         [WriteOnly] public NativeArray<float4> renderablePositions;
 
-        [ReadOnly] public NativeArray<quaternion> startOrientations;
         [ReadOnly] public NativeArray<quaternion> orientations;
+        [ReadOnly] public NativeArray<quaternion> startOrientations;
+        [ReadOnly] public NativeArray<quaternion> endOrientations;
         [WriteOnly] public NativeArray<quaternion> renderableOrientations;
 
-        [ReadOnly] public float deltaTime;
-        [ReadOnly] public float unsimulatedTime;
+        [ReadOnly] public NativeArray<float4> principalRadii;
+        [WriteOnly] public NativeArray<float4> renderableRadii;
+
+        [ReadOnly] public float blendFactor;
         [ReadOnly] public Oni.SolverParameters.Interpolation interpolationMode;
 
         // The code actually running on the job
         public void Execute(int i)
         {
-            if (interpolationMode == Oni.SolverParameters.Interpolation.Interpolate && deltaTime > 0)
+            if (interpolationMode == Oni.SolverParameters.Interpolation.Interpolate)
             {
-                float alpha = unsimulatedTime / deltaTime;
-
-                renderablePositions[i] = math.lerp(startPositions[i], positions[i], alpha);
-                renderableOrientations[i] = math.normalize(math.slerp(startOrientations[i], orientations[i], alpha));
+                renderablePositions[i] = math.lerp(startPositions[i], endPositions[i], blendFactor);
+                renderableOrientations[i] = math.normalize(math.slerp(startOrientations[i], endOrientations[i], blendFactor));
+                renderableRadii[i] = principalRadii[i];
+            }
+            else if (interpolationMode == Oni.SolverParameters.Interpolation.Extrapolate)
+            {
+                renderablePositions[i] = math.lerp(endPositions[i], positions[i], blendFactor);
+                renderableOrientations[i] = math.normalize(math.slerp(endOrientations[i], orientations[i], blendFactor));
+                renderableRadii[i] = principalRadii[i];
             }
             else
             {
-                renderablePositions[i] = positions[i];
-                renderableOrientations[i] = math.normalize(orientations[i]);
+                renderablePositions[i] = endPositions[i];
+                renderableOrientations[i] = math.normalize(endOrientations[i]);
+                renderableRadii[i] = principalRadii[i];
             }
         }
     }

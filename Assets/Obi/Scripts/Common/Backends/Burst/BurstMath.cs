@@ -8,6 +8,7 @@ using Unity.Mathematics;
 using Unity.Burst;
 using System.Runtime.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
+using System.Threading;
 
 namespace Obi
 {
@@ -19,23 +20,83 @@ namespace Obi
         public const float one = 1;
         public static readonly float golden = (math.sqrt(5.0f) + 1) / 2.0f;
 
-        // multiplies a column vector by a row vector.
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static float3x3 multrnsp(float4 column, float4 row)
+        public static unsafe void AddRange<T, U>(this NativeList<T> dst, U[] array) where T : unmanaged where U : unmanaged
         {
-            return new float3x3(column[0] * row[0], column[0] * row[1], column[0] * row[2],
-                                column[1] * row[0], column[1] * row[1], column[1] * row[2],
-                                column[2] * row[0], column[2] * row[1], column[2] * row[2]);
+            var tsize = sizeof(T);
+            var usize = sizeof(U);
+
+            if (tsize == usize)
+            {
+                int dstIndex = dst.Length;
+                dst.ResizeUninitialized(dst.Length + array.Length);
+
+                fixed (U* srcPtr = array)
+                {
+                    var dstPtr = (T*)dst.GetUnsafePtr() + dstIndex;
+                    UnsafeUtility.MemCpy(dstPtr, srcPtr, usize * array.Length);
+                }
+            }
+        }
+
+        public static unsafe void AddReplicate<T, U>(this NativeList<T> dst, U value, int length) where T : unmanaged where U : unmanaged
+        {
+            var tsize = sizeof(T);
+            var usize = sizeof(U);
+
+            if (tsize == usize)
+            {
+                int dstIndex = dst.Length;
+                dst.ResizeUninitialized(dst.Length + length);
+
+                var dstPtr = (T*)dst.GetUnsafePtr() + dstIndex;
+                var srcPtr = UnsafeUtility.AddressOf(ref value);
+                UnsafeUtility.MemCpyReplicate(dstPtr, srcPtr, tsize, length);
+            }
+        }
+
+        public static float AtomicAdd(ref float location, float value)
+        {
+            float newCurrentValue = location;
+            while (true)
+            {
+                float currentValue = newCurrentValue;
+                float newValue = currentValue + value;
+                newCurrentValue = Interlocked.CompareExchange(ref location, newValue, currentValue);
+                if (newCurrentValue.Equals(currentValue))
+                    return newValue;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe static void AtomicAdd(NativeArray<float4> array, int p, float4 data)
+        {
+            float4* arr = (float4*)array.GetUnsafePtr();
+            AtomicAdd(ref arr[p].x, data.x);
+            AtomicAdd(ref arr[p].y, data.y);
+            AtomicAdd(ref arr[p].z, data.z);
+            AtomicAdd(ref arr[p].w, data.w);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe static void AtomicAdd(NativeArray<float> array, int p, float data)
+        {
+            float* arr = (float*)array.GetUnsafePtr();
+            AtomicAdd(ref arr[p], data);
         }
 
         // multiplies a column vector by a row vector.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static float4x4 multrnsp4(float4 column, float4 row)
+        public static float3x3 multrnsp(in float4 column, in float4 row)
         {
-            return new float4x4(column[0] * row[0], column[0] * row[1], column[0] * row[2], 0,
-                                column[1] * row[0], column[1] * row[1], column[1] * row[2], 0,
-                                column[2] * row[0], column[2] * row[1], column[2] * row[2], 0,
-                                0, 0, 0, 1);
+            return new float3x3(column.xyz * row[0], column.xyz * row[1], column.xyz * row[2]);
+        }
+
+        // multiplies a column vector by a row vector.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4x4 multrnsp4(in float4 column, float4 row)
+        {
+            row[3] = 0;
+            return new float4x4(column * row[0], column * row[1], column * row[2], float4.zero);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -45,6 +106,33 @@ namespace Obi
             if (len < epsilon)
                 return float4.zero;
             return math.dot(onto, vector) * onto / len;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float3 project(this float3 vector, float3 onto)
+        {
+            float len = math.lengthsq(onto);
+            if (len < epsilon)
+                return float3.zero;
+            return math.dot(onto, vector) * onto / len;
+        }
+
+        /*[MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4 GetInvParticleInertiaTensor(float4 principalRadii, float invRotationalMass)
+        {
+            float4 sqrRadii = principalRadii * principalRadii;
+            return new float4(5 * invRotationalMass / math.max(new float3(sqrRadii[1] + sqrRadii[2],
+                                                                          sqrRadii[0] + sqrRadii[2],
+                                                                          sqrRadii[0] + sqrRadii[1]), epsilon), 0);
+        }*/
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4 GetParticleInertiaTensor(float4 principalRadii, float invRotationalMass)
+        {
+            float4 sqrRadii = principalRadii * principalRadii;
+            return 0.2f / (invRotationalMass + epsilon) * new float4(sqrRadii[1] + sqrRadii[2],
+                                                                     sqrRadii[0] + sqrRadii[2],
+                                                                     sqrRadii[0] + sqrRadii[1], 0);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -83,30 +171,41 @@ namespace Obi
                                                          NativeArray<BurstRigidbody> rigidbodies,
                                                          NativeArray<float4> linearDeltas,
                                                          NativeArray<float4> angularDeltas,
-                                                         BurstAffineTransform solverToWorld) 
+                                                         BurstInertialFrame solverToWorld) 
         {
             float4 linear  = rigidbodies[rigidbodyIndex].velocity + linearDeltas[rigidbodyIndex];
             float4 angular = rigidbodies[rigidbodyIndex].angularVelocity + angularDeltas[rigidbodyIndex];
-            float4 r = solverToWorld.TransformPoint(point) - rigidbodies[rigidbodyIndex].com;
+            float4 r = solverToWorld.frame.TransformPoint(point) - rigidbodies[rigidbodyIndex].com;
 
-            // Point is assumed to be expressed in solver space. Since rigidbodies are expressed in world space, we need to convert the
-            // point to world space, and convert the resulting velocity back to solver space.
-            return solverToWorld.InverseTransformVector(linear + new float4(math.cross(angular.xyz, r.xyz), 0));
+            // calculate rigidbody velocity:
+            float4 wsRigidbodyVelocity = linear + new float4(math.cross(angular.xyz, r.xyz), 0);
+
+            // calculate solver velocity:
+            float4 wsSolverVelocity = solverToWorld.velocity + new float4(math.cross(solverToWorld.angularVelocity.xyz, point.xyz), 0);
+
+            // convert the resulting velocity back to solver space:
+            return solverToWorld.frame.InverseTransformVector(wsRigidbodyVelocity - wsSolverVelocity);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float4 GetRigidbodyVelocityAtPoint(int rigidbodyIndex,
                                                          float4 point,
                                                          NativeArray<BurstRigidbody> rigidbodies,
-                                                         BurstAffineTransform solverToWorld)
+                                                         BurstInertialFrame solverToWorld)
         {
             float4 linear = rigidbodies[rigidbodyIndex].velocity;
             float4 angular = rigidbodies[rigidbodyIndex].angularVelocity;
-            float4 r = solverToWorld.TransformPoint(point) - rigidbodies[rigidbodyIndex].com;
+            float4 r = solverToWorld.frame.TransformPoint(point) - rigidbodies[rigidbodyIndex].com;
+
+            // calculate rigidbody velocity:
+            float4 wsRigidbodyVelocity = linear + new float4(math.cross(angular.xyz, r.xyz), 0);
+
+            // calculate solver velocity:
+            float4 wsSolverVelocity = solverToWorld.velocity + new float4(math.cross(solverToWorld.angularVelocity.xyz, point.xyz), 0);
 
             // Point is assumed to be expressed in solver space. Since rigidbodies are expressed in world space, we need to convert the
             // point to world space, and convert the resulting velocity back to solver space.
-            return solverToWorld.InverseTransformVector(linear + new float4(math.cross(angular.xyz, r.xyz), 0));
+            return solverToWorld.frame.InverseTransformVector(wsRigidbodyVelocity - wsSolverVelocity);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -120,8 +219,12 @@ namespace Obi
         {
             float4 impulseWS = solverToWorld.TransformVector(impulse);
             float4 r = solverToWorld.TransformPoint(point) - rigidbodies[rigidbodyIndex].com;
-            linearDeltas[rigidbodyIndex]  += rigidbodies[rigidbodyIndex].inverseMass * impulseWS;
-            angularDeltas[rigidbodyIndex] += math.mul(rigidbodies[rigidbodyIndex].inverseInertiaTensor, new float4(math.cross(r.xyz, impulseWS.xyz), 0));
+
+            float4 linearDelta = rigidbodies[rigidbodyIndex].inverseMass * impulseWS;
+            float4 angularDelta = math.mul(rigidbodies[rigidbodyIndex].inverseInertiaTensor, new float4(math.cross(r.xyz, impulseWS.xyz), 0));
+
+            AtomicAdd(linearDeltas, rigidbodyIndex, linearDelta);
+            AtomicAdd(angularDeltas, rigidbodyIndex, angularDelta);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -137,7 +240,7 @@ namespace Obi
 
             // convert quaternion delta to angular acceleration:
             quaternion newRotation = math.normalize(new quaternion(rotationWS.value + deltaWS.value));
-            angularDeltas[rigidbodyIndex] += BurstIntegration.DifferentiateAngular(newRotation, rotationWS, dt);
+            AtomicAdd(angularDeltas, rigidbodyIndex, BurstIntegration.DifferentiateAngular(newRotation, rotationWS, dt));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -145,6 +248,15 @@ namespace Obi
         {
             float dot = math.dot(normal.xyz, forward.xyz);
             if (dot < 0) normal -= 2 * dot * forward;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void OneSidedNormal2(float4 xij, ref float4 nij)
+        {
+            float dot = math.dot(xij.xyz, nij.xyz);
+            if (dot < 0)
+                nij = xij - 2 * dot * nij;
+            else nij = xij;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -157,15 +269,20 @@ namespace Obi
 
         public static quaternion ExtractRotation(float4x4 matrix, quaternion rotation, int iterations)
         {
-            float4x4 R;
+            return ExtractRotation((float3x3)matrix, rotation, iterations);
+        }
+
+        public static quaternion ExtractRotation(float3x3 matrix, quaternion rotation, int iterations)
+        {
+            float3x3 R;
             for (int i = 0; i < iterations; ++i)
             {
-                R = rotation.toMatrix();
-                float3 omega = (math.cross(R.c0.xyz, matrix.c0.xyz) + math.cross(R.c1.xyz, matrix.c1.xyz) + math.cross(R.c2.xyz, matrix.c2.xyz)) /
-                               (math.abs(math.dot(R.c0.xyz, matrix.c0.xyz) + math.dot(R.c1.xyz, matrix.c1.xyz) + math.dot(R.c2.xyz, matrix.c2.xyz)) + BurstMath.epsilon);
+                R = rotation.toMatrix3();
+                float3 omega = (math.cross(R.c0, matrix.c0) + math.cross(R.c1, matrix.c1) + math.cross(R.c2, matrix.c2)) /
+                               (math.abs(math.dot(R.c0, matrix.c0) + math.dot(R.c1, matrix.c1) + math.dot(R.c2, matrix.c2)) + epsilon);
 
                 float w = math.length(omega);
-                if (w < BurstMath.epsilon)
+                if (w < epsilon)
                     break;
 
                 rotation = math.normalize(math.mul(quaternion.AxisAngle((1.0f / w) * omega, w), rotation));
@@ -203,6 +320,25 @@ namespace Obi
                                 0, 0, 0, 1);
         }
 
+        public static float3x3 toMatrix3(this quaternion q)
+        {
+            float xx = q.value.x * q.value.x;
+            float xy = q.value.x * q.value.y;
+            float xz = q.value.x * q.value.z;
+            float xw = q.value.x * q.value.w;
+
+            float yy = q.value.y * q.value.y;
+            float yz = q.value.y * q.value.z;
+            float yw = q.value.y * q.value.w;
+
+            float zz = q.value.z * q.value.z;
+            float zw = q.value.z * q.value.w;
+
+            return new float3x3(1 - 2 * (yy + zz), 2 * (xy - zw), 2 * (xz + yw),
+                                2 * (xy + zw), 1 - 2 * (xx + zz), 2 * (yz - xw),
+                                2 * (xz - yw), 2 * (yz + xw), 1 - 2 * (xx + yy));
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float4x4 asDiagonal(this float4 v)
         {
@@ -211,6 +347,11 @@ namespace Obi
                                 0, 0, v.z, 0,
                                 0, 0, 0, v.w);
         }
+
+        /**         * Modulo operator that also follows intuition for negative arguments. That is , -1 mod 3 = 2, not -1.         */
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]        public static float3 nfmod(float3 a, float3 b)        {            return a - b * math.floor(a / b);        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]        public static float nfmod(float a, float b)        {            return a - b * math.floor(a / b);        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float4 diagonal(this float4x4 value)
@@ -317,7 +458,8 @@ namespace Obi
             {
                 V[0] = 1; return V;
             }
-            else if (index == 0)
+
+            if (index == 0)
             {
                 V[0] = c0p[0]; V[1] = c1p[0]; V[2] = c2p[0];
             }
@@ -576,7 +718,21 @@ namespace Obi
             float4 ap = p - a;
             float4 ab = b - a;
 
-            mu = math.dot(ap, ab) / math.dot(ab, ab);
+            mu = math.dot(ap, ab) / (math.dot(ab, ab) + epsilon);
+
+            if (clampToSegment)
+                mu = math.saturate(mu);
+
+            return a + ab * mu;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float3 NearestPointOnEdge(float3 a, float3 b, float3 p, out float mu, bool clampToSegment = true)
+        {
+            float3 ap = p - a;
+            float3 ab = b - a;
+
+            mu = math.dot(ap, ab) / (math.dot(ab, ab) + epsilon);
 
             if (clampToSegment)
                 mu = math.saturate(mu);
@@ -679,6 +835,178 @@ namespace Obi
             return center;
         }
 
+        // https://fgiesen.wordpress.com/2009/12/13/decoding-morton-codes/
+
+        // "Insert" a 0 bit after each of the 16 low bits of x
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint Part1By1(uint x)
+        {
+            x &= 0x0000ffff;                  // x = ---- ---- ---- ---- fedc ba98 7654 3210
+            x = (x ^ (x << 8)) & 0x00ff00ff; // x = ---- ---- fedc ba98 ---- ---- 7654 3210
+            x = (x ^ (x << 4)) & 0x0f0f0f0f; // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
+            x = (x ^ (x << 2)) & 0x33333333; // x = --fe --dc --ba --98 --76 --54 --32 --10
+            x = (x ^ (x << 1)) & 0x55555555; // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
+            return x;
+        }
+
+
+        // "Insert" two 0 bits after each of the 10 low bits of x
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint Part1By2(uint x)
+        {
+            x &= 0x000003ff;                  // x = ---- ---- ---- ---- ---- --98 7654 3210
+            x = (x ^ (x << 16)) & 0xff0000ff; // x = ---- --98 ---- ---- ---- ---- 7654 3210
+            x = (x ^ (x << 8)) & 0x0300f00f; // x = ---- --98 ---- ---- 7654 ---- ---- 3210
+            x = (x ^ (x << 4)) & 0x030c30c3; // x = ---- --98 ---- 76-- --54 ---- 32-- --10
+            x = (x ^ (x << 2)) & 0x09249249; // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
+            return x;
+        }
+
+        // Inverse of Part1By1 - "delete" all odd-indexed bits
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint Compact1By1(uint x)
+        {
+            x &= 0x55555555;                  // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
+            x = (x ^ (x >> 1)) & 0x33333333; // x = --fe --dc --ba --98 --76 --54 --32 --10
+            x = (x ^ (x >> 2)) & 0x0f0f0f0f; // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
+            x = (x ^ (x >> 4)) & 0x00ff00ff; // x = ---- ---- fedc ba98 ---- ---- 7654 3210
+            x = (x ^ (x >> 8)) & 0x0000ffff; // x = ---- ---- ---- ---- fedc ba98 7654 3210
+            return x;
+        }
+
+        // Inverse of Part1By2 - "delete" all bits not at positions divisible by 3
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint Compact1By2(uint x)
+        {
+            x &= 0x09249249;                  // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
+            x = (x ^ (x >> 2)) & 0x030c30c3; // x = ---- --98 ---- 76-- --54 ---- 32-- --10
+            x = (x ^ (x >> 4)) & 0x0300f00f; // x = ---- --98 ---- ---- 7654 ---- ---- 3210
+            x = (x ^ (x >> 8)) & 0xff0000ff; // x = ---- --98 ---- ---- ---- ---- 7654 3210
+            x = (x ^ (x >> 16)) & 0x000003ff; // x = ---- ---- ---- ---- ---- --98 7654 3210
+            return x;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint EncodeMorton2(uint2 coords)
+        {
+            return (Part1By1(coords.y) << 1) + Part1By1(coords.x);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint EncodeMorton3(uint3 coords)
+        {
+            return (Part1By2(coords.z) << 2) + (Part1By2(coords.y) << 1) + Part1By2(coords.x);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint3 DecodeMorton2(uint code)
+        {
+            return new uint3(Compact1By1(code >> 0), Compact1By1(code >> 1), 0);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint3 DecodeMorton3(uint code)
+        {
+            return new uint3(Compact1By2(code >> 0), Compact1By2(code >> 1), Compact1By2(code >> 2));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float4 UnpackFloatRGBA(float v)
+        {
+            uint rgba = math.asuint(v);
+            float r = ((rgba & 0xff000000) >> 24) / 255f;
+            float g = ((rgba & 0x00ff0000) >> 16) / 255f;
+            float b = ((rgba & 0x0000ff00) >> 8) / 255f;
+            float a = (rgba & 0x000000ff) / 255f;
+            return new float4(r, g, b, a);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float PackFloatRGBA(float4 enc)
+        {
+            uint rgba = ((uint)(enc.x * 255f) << 24) +
+                        ((uint)(enc.y * 255f) << 16) +
+                        ((uint)(enc.z * 255f) << 8) +
+                        (uint)(enc.w * 255f);
+            return math.asfloat(rgba);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float2 UnpackFloatRG(float v)
+        {
+            uint rgba = math.asuint(v);
+            float r = ((rgba & 0xffff0000) >> 16) / 65535f;
+            float g = (rgba & 0x0000ffff) / 65535f;
+            return new float2(r, g);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float PackFloatRG(float2 enc)
+        {
+            uint rgba = ((uint)(enc.x * 65535f) << 16) +
+                        (uint)(enc.y * 65535f);
+            return math.asfloat(rgba);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static float2 OctWrap(float2 v)
+        {
+            return (1.0f - math.abs(v.yx)) * new float2(v.x >= 0.0f ? 1.0f : -1.0f, v.y >= 0.0f ? 1.0f : -1.0f);
+        }
+
+        // use octahedral encoding to reduce to 2 coords, then pack them as two 16 bit values in a 32 bit float.
+        public static float OctEncode(float3 n)
+        {
+            n /= math.abs(n.x) + math.abs(n.y) + math.abs(n.z);
+            n.xy = n.z >= 0.0 ? n.xy : OctWrap(n.xy);
+            n.xy = n.xy * 0.5f + 0.5f;
+
+            uint nx = (uint)(n.x * 0xffff);
+            uint ny = (uint)(n.y * 0xffff);
+            return math.asfloat((nx << 16) | (ny & 0xffff));
+        }
+
+        public static float3 OctDecode(float k)
+        {
+            uint d = math.asuint(k);
+            float2 f = new float2((d >> 16) / 65535f, (d & 0xffff) / 65535f) * 2f - 1f;
+
+            float3 n = new float3(f.x, f.y, 1.0f - math.abs(f.x) - math.abs(f.y));
+            float t = math.saturate(-n.z);
+            n.x += n.x >= 0.0f ? -t : t;
+            n.y += n.y >= 0.0f ? -t : t;
+            return math.normalize(n);
+        }
+
+        public static float Remap01(float value, float min_, float max_)
+        {
+            return (math.min(value, max_) - math.min(value, min_)) / (max_ - min_);
+        }
+
+        public static float3 Sort(this float3 f)
+        {
+            float aux;
+            if (f.x > f.y)
+            {
+                aux = f.x;
+                f.x = f.y;
+                f.y = aux;
+            }
+            if (f.x > f.z)
+            {
+                aux = f.x;
+                f.x = f.z;
+                f.z = aux;
+            }
+            if (f.y > f.z)
+            {
+                aux = f.y;
+                f.y = f.z;
+                f.z = aux;
+            }
+            return new float3(f.z,f.y,f.x);
+        }
+
         public static unsafe void RemoveRangeBurst<T>(this NativeList<T> list, int index, int count)
             where T : unmanaged
         {
@@ -700,6 +1028,57 @@ namespace Obi
             {
                 list.RemoveAtSwapBack(list.Length - 1);
             }
+        }
+
+        //https://www.shadertoy.com/view/4djSRW
+        public static float3 Hash33(float3 p3)
+        {
+            p3 = math.frac(p3 * new float3(.1031f, .1030f, .0973f));
+            p3 += math.dot(p3, p3.yxz + 33.33f);
+            return math.frac((p3.xxy + p3.yxx) * p3.zyx);
+        }
+
+        public static float Hash13(float3 p3)
+        {
+            p3 = math.frac(p3 * .1031f);
+            p3 += math.dot(p3, p3.zyx + 31.32f);
+            return math.frac((p3.x + p3.y) * p3.z);
+        }
+
+        public static float2 Hash21(float p)
+        {
+            float3 p3 = math.frac(new float3(p) * new float3(.1031f, .1030f, .0973f));
+            p3 += math.dot(p3, p3.yzx + 33.33f);
+            return math.frac((p3.xx + p3.yz) * p3.zy);
+        }
+
+        public static float3 Hash31(float p)
+        {
+            float3 p3 = math.frac(new float3(p) * new float3(.1031f, .1030f, .0973f));
+            p3 += math.dot(p3, p3.yzx + 33.33f);
+            return math.frac((p3.xxy + p3.yzz) * p3.zyx);
+        }
+
+        public static void RandomInCylinder(float seed, float4 pos, float4 dir, float length, float radius, out float4 position, out float3 velocity)
+        {
+            float3 rand = Hash31(seed);
+
+            float3 b1 = dir.xyz;
+            float3 b2 = math.normalizesafe(math.cross(b1, new float3(1, 0, 0)));
+            float3 b3 = math.cross(b2, b1);
+
+            float theta = rand.y * 2 * math.PI;
+            float2 disc = radius * math.sqrt(rand.x) * new float2(math.cos(theta), math.sin(theta));
+
+            velocity = b2 * disc.x + b3 * disc.y;
+            position = new float4(pos.xyz + b1 * length * rand.z + velocity, 0);
+        }
+
+        public static void RandomInBox(float seed, float4 center, float4 size, out float4 position, out float3 velocity)
+        {
+            float3 rand = Hash31(seed);
+            velocity = (rand - new float3(0.5f, 0.5f, 0.5f)) * size.xyz;
+            position = new float4(center.xyz + velocity, 0);
         }
     }
 }

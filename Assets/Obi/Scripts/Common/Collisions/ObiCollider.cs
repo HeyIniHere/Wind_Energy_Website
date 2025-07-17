@@ -30,9 +30,8 @@ namespace Obi
                     return;
                 }
 
-                m_SourceCollider = value;
-
                 RemoveCollider();
+                m_SourceCollider = value;
                 AddCollider();
 
             }

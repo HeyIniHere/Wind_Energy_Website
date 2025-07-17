@@ -42,7 +42,7 @@ namespace Obi
             applyConstraints.particleIndices = this.particleIndices;
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             projectConstraints.positions = solverImplementation.positions;
             projectConstraints.invMasses = solverImplementation.invMasses;
@@ -97,7 +97,6 @@ namespace Obi
                 float4 bendVector = positions[p3] - (positions[p1] + positions[p2] + positions[p3]) / 3.0f;
                 float bend = math.length(bendVector);
 
-             
                 float constraint = bend - restBends[i];
 
                 constraint = math.max(0, constraint - stiffnesses[i].x) +

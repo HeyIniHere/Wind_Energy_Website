@@ -13,18 +13,8 @@ namespace Obi
             set;
         }
 
-        float drag
-        {
-            get;
-            set;
-        }
-
-        float lift
-        {
-            get;
-            set;
-        }
-
+        float GetDrag(ObiAerodynamicConstraintsBatch batch, int constraintIndex);
+        float GetLift(ObiAerodynamicConstraintsBatch batch, int constraintIndex);
     }
 
     [Serializable]

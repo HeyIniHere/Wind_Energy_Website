@@ -12,7 +12,9 @@ namespace Obi
             Z = 2
         }
 
-		public Vector3 position;
+        public static ObiPathFrame Identity => new ObiPathFrame(Vector3.zero, Vector3.forward, Vector3.up, Vector3.right, Color.white, 0);
+
+        public Vector3 position;
 
         public Vector3 tangent;
         public Vector3 normal;
@@ -28,7 +30,7 @@ namespace Obi
             this.binormal = binormal;
 			this.color = color;
             this.thickness = thickness;
-		}
+        }
 
         public void Reset()
         {
@@ -50,7 +52,7 @@ namespace Obi
             return new ObiPathFrame(c.position * f, c.tangent * f, c.normal * f, c.binormal * f,c.color * f, c.thickness * f);
 	    }
 
-        public static void WeightedSum(float w1, float w2, float w3, ref ObiPathFrame c1, ref ObiPathFrame c2, ref ObiPathFrame c3, ref ObiPathFrame sum)
+        public static void WeightedSum(float w1, float w2, float w3, in ObiPathFrame c1, in ObiPathFrame c2, in ObiPathFrame c3, ref ObiPathFrame sum)
         {
             sum.position.x = c1.position.x * w1 + c2.position.x * w2 + c3.position.x * w3;
             sum.position.y = c1.position.y * w1 + c2.position.y * w2 + c3.position.y * w3;

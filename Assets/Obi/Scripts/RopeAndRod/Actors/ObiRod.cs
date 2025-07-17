@@ -183,22 +183,35 @@ namespace Obi
             SetupRuntimeConstraints();
         }
 
-        public override void LoadBlueprint(ObiSolver solver)
+        internal override void LoadBlueprint()
         {
-            base.LoadBlueprint(solver);
+            base.LoadBlueprint();
             RebuildElementsFromConstraints();
             SetupRuntimeConstraints();
+        }
+
+        public override void RequestReadback()
+        {
+            base.RequestReadback();
+            solver.orientations.Readback();
+        }
+
+        public override void SimulationEnd(float simulatedTime, float substepTime)
+        {
+            base.SimulationEnd(simulatedTime, substepTime);
+            solver.orientations.WaitForReadback();
         }
 
         private void SetupRuntimeConstraints()
         {
             SetConstraintsDirty(Oni.ConstraintType.StretchShear);
-            //SetConstraintsDirty(Oni.ConstraintType.BendTwist);
+            SetConstraintsDirty(Oni.ConstraintType.BendTwist);
             SetConstraintsDirty(Oni.ConstraintType.Chain);
+            SetConstraintsDirty(Oni.ConstraintType.Aerodynamics);
             SetSelfCollisions(selfCollisions);
+            SetMassScale(m_MassScale);
             RecalculateRestLength();
             SetSimplicesDirty();
-            UpdateCollisionMaterials();
         }
 
         public Vector3 GetBendTwistCompliance(ObiBendTwistConstraintsBatch batch, int constraintIndex)
@@ -219,7 +232,7 @@ namespace Obi
         protected override void RebuildElementsFromConstraintsInternal()
         {
             var dc = GetConstraintsByType(Oni.ConstraintType.StretchShear) as ObiConstraints<ObiStretchShearConstraintsBatch>;
-            if (dc == null || dc.GetBatchCount() < 2)
+            if (dc == null || dc.batchCount < 2)
                 return;
 
             int constraintCount = dc.batches[0].activeConstraintCount + dc.batches[1].activeConstraintCount;

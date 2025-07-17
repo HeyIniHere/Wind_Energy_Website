@@ -24,16 +24,16 @@ namespace Obi
             this.max = max;
         }
 
-        public BurstAabb(float4 v1, float4 v2, float4 v3, float margin)
+        public BurstAabb(float4 v1, float4 v2, float4 v3, float4 margin)
         {
-            min = math.min(math.min(v1, v2), v3) - new float4(margin, margin, margin, 0);
-            max = math.max(math.max(v1, v2), v3) + new float4(margin, margin, margin, 0);
+            min = math.min(math.min(v1, v2), v3) - margin;
+            max = math.max(math.max(v1, v2), v3) + margin;
         }
 
-        public BurstAabb(float2 v1, float2 v2, float margin)
+        public BurstAabb(float4 v1, float4 v2, float4 margin)
         {
-            min = new float4(math.min(v1, v2) - new float2(margin, margin),0,0);
-            max = new float4(math.max(v1, v2) + new float2(margin, margin),0,0);
+            min = math.min(v1, v2) - margin;
+            max = math.max(v1, v2) + margin;
         }
 
         public BurstAabb(float4 previousPosition, float4 position, float radius)
@@ -50,7 +50,7 @@ namespace Obi
 
         public float MaxAxisLength()
         {
-            return math.cmax(max - min);
+            return math.cmax((max - min).xyz);
         }
 
         public void EncapsulateParticle(float4 position, float radius)

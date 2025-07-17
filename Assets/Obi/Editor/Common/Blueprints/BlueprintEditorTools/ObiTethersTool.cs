@@ -57,20 +57,20 @@ namespace Obi
             if (GUILayout.Button("Generate tethers",GUILayout.MinHeight(32)))
             {
                 // Select all particles in the tethered groups:
-                for (int i = 0; i < editor.selectionStatus.Length; ++i)
+                for (int i = 0; i < ObiActorBlueprintEditor.selectionStatus.Length; ++i)
                 {
-                    editor.selectionStatus[i] = false;
+                    ObiActorBlueprintEditor.selectionStatus[i] = false;
                     for (int j = 0; j < tetheredGroups.Length; ++j)
                     {
                         if (tetheredGroups[j] && editor.blueprint.groups[j].ContainsParticle(i))
                         {
-                            editor.selectionStatus[i] = true;
+                            ObiActorBlueprintEditor.selectionStatus[i] = true;
                             break;
                         }
                     }
                 }
 
-                editor.blueprint.GenerateTethers(editor.selectionStatus);
+                editor.blueprint.GenerateTethers(ObiActorBlueprintEditor.selectionStatus);
                 editor.Refresh();
             }
 

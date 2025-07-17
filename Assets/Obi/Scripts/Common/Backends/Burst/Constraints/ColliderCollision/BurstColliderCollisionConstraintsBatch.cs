@@ -17,7 +17,7 @@ namespace Obi
             m_ConstraintType = Oni.ConstraintType.Collision;
         }
 
-        public override JobHandle Initialize(JobHandle inputDeps, float substepTime)
+        public override JobHandle Initialize(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var updateContacts = new UpdateContactsJob()
             {
@@ -26,7 +26,7 @@ namespace Obi
                 velocities = solverImplementation.velocities,
                 radii = solverImplementation.principalRadii,
                 invMasses = solverImplementation.invMasses,
-                invInertiaTensors = solverImplementation.invInertiaTensors,
+                invRotationalMasses = solverImplementation.invRotationalMasses,
                 particleMaterialIndices = solverImplementation.collisionMaterials,
                 collisionMaterials = ObiColliderWorld.GetInstance().collisionMaterials.AsNativeArray<BurstCollisionMaterial>(),
 
@@ -39,13 +39,14 @@ namespace Obi
                 rigidbodyLinearDeltas = solverImplementation.abstraction.rigidbodyLinearDeltas.AsNativeArray<float4>(),
                 rigidbodyAngularDeltas = solverImplementation.abstraction.rigidbodyAngularDeltas.AsNativeArray<float4>(),
 
-                contacts = ((BurstSolverImpl)constraints.solver).colliderContacts,
+                contacts = ((BurstSolverImpl)constraints.solver).abstraction.colliderContacts.AsNativeArray<BurstContact>(),
+                effectiveMasses = ((BurstSolverImpl)constraints.solver).abstraction.contactEffectiveMasses.AsNativeArray<ContactEffectiveMasses>(),
                 inertialFrame = ((BurstSolverImpl)constraints.solver).inertialFrame
             };
-            return updateContacts.Schedule(((BurstSolverImpl)constraints.solver).colliderContacts.Length, 128, inputDeps);
+            return updateContacts.Schedule(((BurstSolverImpl)constraints.solver).abstraction.colliderContacts.count, 128, inputDeps);
         }
 
-        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int substeps)
+        public override JobHandle Evaluate(JobHandle inputDeps, float stepTime, float substepTime, int steps, float timeLeft)
         {
             var parameters = solverAbstraction.GetConstraintParameters(m_ConstraintType);
 
@@ -72,11 +73,13 @@ namespace Obi
                 deltas = solverAbstraction.positionDeltas.AsNativeArray<float4>(),
                 counts = solverAbstraction.positionConstraintCounts.AsNativeArray<int>(),
 
-                contacts = ((BurstSolverImpl)constraints.solver).colliderContacts,
+                contacts = ((BurstSolverImpl)constraints.solver).abstraction.colliderContacts.AsNativeArray<BurstContact>(),
+                effectiveMasses = ((BurstSolverImpl)constraints.solver).abstraction.contactEffectiveMasses.AsNativeArray<ContactEffectiveMasses>(),
                 inertialFrame = ((BurstSolverImpl)constraints.solver).inertialFrame,
                 constraintParameters = parameters,
                 solverParameters = solverAbstraction.parameters,
-                substeps = substeps,
+                steps = steps,
+                timeLeft = timeLeft,
                 stepTime = stepTime,
                 substepTime = substepTime
             };
@@ -89,7 +92,7 @@ namespace Obi
 
             var applyConstraints = new ApplyCollisionConstraintsBatchJob()
             {
-                contacts = ((BurstSolverImpl)constraints.solver).colliderContacts,
+                contacts = ((BurstSolverImpl)constraints.solver).abstraction.colliderContacts.AsNativeArray<BurstContact>(),
 
                 simplices = solverImplementation.simplices,
                 simplexCounts = solverImplementation.simplexCounts,
@@ -108,7 +111,7 @@ namespace Obi
 
         /**
          * Updates contact data (such as contact distance) at the beginning of each substep. This is
-         * necessary because contacts are generalted only once at the beginning of each step, not every substep.
+         * necessary because contacts are generated only once at the beginning of each step, not every substep.
          */
         [BurstCompile]
         public struct UpdateContactsJob : IJobParallelFor
@@ -118,7 +121,7 @@ namespace Obi
             [ReadOnly] public NativeArray<float4> velocities;
             [ReadOnly] public NativeArray<float4> radii;
             [ReadOnly] public NativeArray<float> invMasses;
-            [ReadOnly] public NativeArray<float4> invInertiaTensors;
+            [ReadOnly] public NativeArray<float> invRotationalMasses;
 
             [ReadOnly] public NativeArray<int> particleMaterialIndices;
             [ReadOnly] public NativeArray<BurstCollisionMaterial> collisionMaterials;
@@ -133,12 +136,14 @@ namespace Obi
             [ReadOnly] public NativeArray<float4> rigidbodyLinearDeltas;
             [ReadOnly] public NativeArray<float4> rigidbodyAngularDeltas;
 
+            public NativeArray<ContactEffectiveMasses> effectiveMasses;
             public NativeArray<BurstContact> contacts;
             [ReadOnly] public BurstInertialFrame inertialFrame;
 
             public void Execute(int i)
             {
                 var contact = contacts[i];
+                var efMasses = effectiveMasses[i];
 
                 int simplexStart = simplexCounts.GetSimplexStartAndSize(contact.bodyA, out int simplexSize);
 
@@ -150,7 +155,7 @@ namespace Obi
                 float4 simplexPrevPosition = float4.zero;
                 quaternion simplexPrevOrientation = new quaternion(0, 0, 0, 0);
                 float simplexInvMass = 0;
-                float4 simplexInvInertia = float4.zero;
+                float simplexInvRotationalMass = 0;
                 float simplexRadius = 0;
 
                 for (int j = 0; j < simplexSize; ++j)
@@ -160,7 +165,7 @@ namespace Obi
                     simplexPrevPosition += prevPositions[particleIndex] * contact.pointA[j];
                     simplexPrevOrientation.value += prevOrientations[particleIndex].value * contact.pointA[j];
                     simplexInvMass += invMasses[particleIndex] * contact.pointA[j];
-                    simplexInvInertia += invInertiaTensors[particleIndex] * contact.pointA[j];
+                    simplexInvRotationalMass = invRotationalMasses[particleIndex] * contact.pointA[j];
                     simplexRadius += BurstMath.EllipsoidRadius(contact.normal, prevOrientations[particleIndex], radii[particleIndex].xyz) * contact.pointA[j];
                 }
 
@@ -168,7 +173,7 @@ namespace Obi
                 int rigidbodyIndex = shapes[contact.bodyB].rigidbodyIndex;
                 if (rigidbodyIndex >= 0)
                 {
-                    relativeVelocity -= BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
+                    relativeVelocity -= BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame);
 
                     int bMaterialIndex = shapes[contact.bodyB].materialIndex;
                     rollingContacts |= bMaterialIndex >= 0 ? collisionMaterials[bMaterialIndex].rollingContacts > 0 : false;
@@ -180,17 +185,21 @@ namespace Obi
                 // calculate contact point in A's surface:
                 float4 contactPoint = contact.pointB + contact.normal * contact.distance;
 
-                // update contact orthonormal basis:
-                contact.CalculateBasis(relativeVelocity);
+                // calculate contact tangent (first friction direction) using relative velocity:
+                contact.CalculateTangent(relativeVelocity);
 
                 // calculate A's contact mass.
-                contact.CalculateContactMassesA(simplexInvMass, simplexInvInertia, simplexPrevPosition, simplexPrevOrientation, contactPoint, rollingContacts);
+                float4 invInertiaTensor = math.rcp(BurstMath.GetParticleInertiaTensor(simplexRadius, simplexInvRotationalMass) + new float4(BurstMath.epsilon));
+                efMasses.CalculateContactMassesA(simplexInvMass, invInertiaTensor, simplexPrevPosition, simplexPrevOrientation, contactPoint, contact.normal, contact.tangent, contact.bitangent, rollingContacts);
 
                 // calculate B's contact mass.
                 if (rigidbodyIndex >= 0)
-                    contact.CalculateContactMassesB(rigidbodies[rigidbodyIndex], inertialFrame.frame);
+                    efMasses.CalculateContactMassesB(rigidbodies[rigidbodyIndex], inertialFrame.frame, contact.pointB, contact.normal, contact.tangent, contact.bitangent);
+                else
+                    efMasses.ClearContactMassesB();
 
                 contacts[i] = contact;
+                effectiveMasses[i] = efMasses;
             }
         }
 
@@ -220,12 +229,14 @@ namespace Obi
             [NativeDisableContainerSafetyRestriction] [NativeDisableParallelForRestriction] public NativeArray<int> counts;
 
             public NativeArray<BurstContact> contacts;
+            [ReadOnly] public NativeArray<ContactEffectiveMasses> effectiveMasses;
             [ReadOnly] public BurstInertialFrame inertialFrame;
             [ReadOnly] public Oni.ConstraintParameters constraintParameters;
             [ReadOnly] public Oni.SolverParameters solverParameters;
             [ReadOnly] public float stepTime;
             [ReadOnly] public float substepTime;
-            [ReadOnly] public int substeps;
+            [ReadOnly] public float timeLeft;
+            [ReadOnly] public int steps;
 
             public void Execute()
             {
@@ -237,11 +248,14 @@ namespace Obi
                     int colliderIndex = contact.bodyB;
 
                     // Skip contacts involving triggers:
-                    if (shapes[colliderIndex].flags > 0)
+                    if (shapes[colliderIndex].isTrigger)
                         continue;
 
                     // Get the rigidbody index (might be < 0, in that case there's no rigidbody present)
                     int rigidbodyIndex = shapes[colliderIndex].rigidbodyIndex;
+
+                    float frameEnd = stepTime * steps;
+                    float substepsToEnd = timeLeft / substepTime;
 
                     // Combine collision materials (use material from first particle in simplex)
                     BurstCollisionMaterial material = CombineCollisionMaterials(simplices[simplexStart], colliderIndex);
@@ -262,24 +276,24 @@ namespace Obi
                     }
 
                     // project position to the end of the full step:
-                    float4 posA = math.lerp(simplexPrevPosition, simplexPosition, substeps);
+                    float4 posA = math.lerp(simplexPrevPosition, simplexPosition, substepsToEnd);
                     posA += -contact.normal * simplexRadius;
 
                     float4 posB = contact.pointB;
 
                     if (rigidbodyIndex >= 0)
-                        posB += BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame) * stepTime;
+                        posB += BurstMath.GetRigidbodyVelocityAtPoint(rigidbodyIndex, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame) * frameEnd;
 
                     // adhesion:
-                    float lambda = contact.SolveAdhesion(posA, posB, material.stickDistance, material.stickiness, stepTime);
+                    float lambda = contact.SolveAdhesion(effectiveMasses[i].TotalNormalInvMass, posA, posB, material.stickDistance, material.stickiness, stepTime);
 
                     // depenetration:
-                    lambda += contact.SolvePenetration(posA, posB, solverParameters.maxDepenetration * stepTime);
+                    lambda += contact.SolvePenetration(effectiveMasses[i].TotalNormalInvMass, posA, posB, solverParameters.maxDepenetration * stepTime);
 
                     // Apply normal impulse to both simplex and rigidbody:
                     if (math.abs(lambda) > BurstMath.epsilon)
                     {
-                        float4 delta = lambda * contact.normal * BurstMath.BaryScale(contact.pointA) / substeps;
+                        float4 delta = lambda * contact.normal * BurstMath.BaryScale(contact.pointA) / substepsToEnd;
                         for (int j = 0; j < simplexSize; ++j)
                         {
                             int particleIndex = simplices[simplexStart + j];
@@ -298,8 +312,8 @@ namespace Obi
                         }
 
                         if (rigidbodyIndex >= 0)
-                        {
-                            BurstMath.ApplyImpulse(rigidbodyIndex, -lambda / stepTime * contact.normal, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
+                        { 
+                            BurstMath.ApplyImpulse(rigidbodyIndex, -lambda / frameEnd * contact.normal, contact.pointB, rigidbodies, rigidbodyLinearDeltas, rigidbodyAngularDeltas, inertialFrame.frame);
                         }
                     }
 

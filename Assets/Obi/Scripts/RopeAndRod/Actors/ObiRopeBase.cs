@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace Obi
 {
-    public abstract class ObiRopeBase : ObiActor
+    public abstract class ObiRopeBase : ObiActor, IAerodynamicConstraintsUser
     {
 
         [SerializeField] protected bool m_SelfCollisions = false;
@@ -12,10 +12,43 @@ namespace Obi
         [HideInInspector] public List<ObiStructuralElement> elements = new List<ObiStructuralElement>();    /**< Elements.*/
         public event ActorCallback OnElementsGenerated;
 
+        // aerodynamics
+        [SerializeField] protected bool _aerodynamicsEnabled = true;
+        [SerializeField] protected float _drag = 0.05f;
+        [SerializeField] protected float _lift = 0.02f;
+
+        /// <summary>  
+        ///   Whether this actor's aerodynamic constraints are enabled.
+        /// </summary>
+        public bool aerodynamicsEnabled
+        {
+            get { return _aerodynamicsEnabled; }
+            set { if (value != _aerodynamicsEnabled) { _aerodynamicsEnabled = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); } }
+        }
+
+        /// <summary>  
+        /// Aerodynamic drag value.
+        /// </summary>
+        public float drag
+        {
+            get { return _drag; }
+            set { _drag = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); }
+        }
+
+        /// <summary>  
+        /// Aerodynamic lift value.
+        /// </summary>
+        public float lift
+        {
+            get { return _lift; }
+            set { _lift = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); }
+        }
+
         public float restLength
         {
             get { return restLength_; }
         }
+
 
         public ObiPath path
         {
@@ -23,6 +56,37 @@ namespace Obi
                 var ropeBlueprint = (sourceBlueprint as ObiRopeBlueprintBase);
                 return ropeBlueprint != null ? ropeBlueprint.path : null; 
             }
+        }
+
+        public float GetDrag(ObiAerodynamicConstraintsBatch batch, int constraintIndex)
+        {
+            return drag;
+        }
+
+        public float GetLift(ObiAerodynamicConstraintsBatch batch, int constraintIndex)
+        {
+            return lift;
+        }
+
+        public override void ProvideDeformableEdges(ObiNativeIntList deformableEdges)
+        {
+            deformableEdgesOffset = deformableEdges.count / 2;
+
+            var ropeBlueprint = sharedBlueprint as ObiRopeBlueprintBase;
+            if (ropeBlueprint != null && ropeBlueprint.deformableEdges != null)
+            {
+                // Send deformable edge indices to the solver:
+                for (int i = 0; i < ropeBlueprint.deformableEdges.Length; ++i)
+                    deformableEdges.Add(solverIndices[ropeBlueprint.deformableEdges[i]]);
+            }
+        }
+
+        public override int GetDeformableEdgeCount()
+        {
+            var ropeBlueprint = sharedBlueprint as ObiRopeBlueprintBase;
+            if (ropeBlueprint != null && ropeBlueprint.deformableEdges != null)
+                return ropeBlueprint.deformableEdges.Length / 2;
+            return 0;
         }
 
         /// <summary>  
@@ -103,6 +167,26 @@ namespace Obi
             if (elements != null && index < elements.Count)
                 return elements[index];
             return null;
+        }
+
+        /// <summary>  
+        /// Returns index of the edge that contains a length-normalized coordinate. It will also return the length-normalized coordinate within the edge.
+        /// </summary>
+        public int GetEdgeAt(float mu, out float elementMu)
+        {
+            elementMu = -1;
+            var ropeBlueprint = sharedBlueprint as ObiRopeBlueprintBase;
+            if (ropeBlueprint != null && ropeBlueprint.deformableEdges != null)
+            {
+                float edgeMu = ropeBlueprint.deformableEdges.Length/2 * Mathf.Clamp(mu, 0, 0.99999f);
+
+                int index = (int)edgeMu;
+                elementMu = edgeMu - index;
+
+                if (index < ropeBlueprint.deformableEdges.Length/2)
+                    return index;
+            }
+            return -1;
         }
 
     }

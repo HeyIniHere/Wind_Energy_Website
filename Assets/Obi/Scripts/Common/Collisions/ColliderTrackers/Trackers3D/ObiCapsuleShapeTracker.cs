@@ -11,7 +11,7 @@ namespace Obi{
             this.source = source;
 		}	
 	
-		public override bool UpdateIfNeeded (){
+		public override void UpdateIfNeeded (){
 
             CapsuleCollider capsule = collider as CapsuleCollider;
 
@@ -23,9 +23,11 @@ namespace Obi{
             var shape = world.colliderShapes[index];
             shape.type = ColliderShape.ShapeType.Capsule;
             shape.filter = source.Filter;
-            shape.flags = capsule.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = capsule.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.contactOffset = source.Thickness;
             shape.center = capsule.center;
             shape.size = new Vector4(capsule.radius, capsule.height, capsule.direction, 0);
@@ -38,10 +40,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(capsule.transform);
+            trfm.FromTransform3D(capsule.transform, source.Rigidbody as ObiRigidbody);
             world.colliderTransforms[index] = trfm;
-
-            return true;
         }
 
 	}

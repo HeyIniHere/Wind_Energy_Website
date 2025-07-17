@@ -39,7 +39,9 @@ namespace Obi
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float4 DifferentiateAngular(quaternion rotation, quaternion prevRotation, float dt)
         {
-            return new float4((math.mul(rotation, math.inverse(prevRotation)).value * 2.0f / dt).xyz, 0);
+            quaternion deltaq = math.mul(rotation, math.inverse(prevRotation));
+            float sign = deltaq.value.w >= 0 ? 1 : -1;
+            return new float4(sign * deltaq.value.xyz * 2.0f / dt, 0);
         }
     }
 }

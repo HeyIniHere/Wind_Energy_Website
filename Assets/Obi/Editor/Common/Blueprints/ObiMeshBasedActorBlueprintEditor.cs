@@ -18,6 +18,7 @@ namespace Obi
         }
 
         protected Mesh visualizationMesh;
+        protected Mesh visualizationWireMesh;
         public ParticleCulling particleCulling = ParticleCulling.Back;
        
         protected Material gradientMaterial;
@@ -75,46 +76,50 @@ namespace Obi
 
         public abstract int VertexToParticle(int vertexIndex);
 
-        public override void UpdateParticleVisibility()
+        public override void UpdateParticleVisibility(Camera cam)
         {
-            if (sourceMesh != null && Camera.current != null)
+            if (cam != null)
             {
-                Vector3[] meshNormals = sourceMesh.normals;
-                for (int i = 0; i < sourceMesh.vertexCount; i++)
+                for (int i = 0; i < blueprint.positions.Length; i++)
                 {
-                    int particle = VertexToParticle(i);
-
-                    if (particle >= 0 && particle < blueprint.positions.Length)
+                    if (blueprint.IsParticleActive(i))
                     {
-                        Vector3 camToParticle = Camera.current.transform.position - blueprint.positions[particle];
+                        Vector3 camToParticle = cam.transform.position - blueprint.positions[i];
+                        sqrDistanceToCamera[i] = camToParticle.sqrMagnitude;
 
-                        sqrDistanceToCamera[particle] = camToParticle.sqrMagnitude;
+                        Vector3 normal;
 
                         switch (particleCulling)
                         {
                             case ParticleCulling.Off:
-                                visible[particle] = true;
+                                visible[i] = true;
                                 break;
                             case ParticleCulling.Back:
-                                visible[particle] = Vector3.Dot(meshNormals[i], camToParticle) > 0;
+                                normal = blueprint.restOrientations[i] * Vector3.forward;
+                                visible[i] = Vector3.Dot(normal, camToParticle) > 0;
                                 break;
                             case ParticleCulling.Front:
-                                visible[particle] = Vector3.Dot(meshNormals[i], camToParticle) <= 0;
+                                normal = blueprint.restOrientations[i] * Vector3.forward;
+                                visible[i] = Vector3.Dot(normal, camToParticle) <= 0;
                                 break;
                         }
                     }
-
                 }
 
                 if ((renderModeFlags & 1) != 0)
                     Refresh();
             }
-
         }
 
         public void DrawGradientMesh(float[] vertexWeights = null, float[] wireframeWeights = null)
         {
+            // Due to this Unity bug: https://issuetracker.unity3d.com/issues/drawmeshnow-is-not-drawing-mesh-immediately-dx12
+            // we need to create two meshes insteaf of one :(
+            if (sourceMesh == null)
+                return;
+
             visualizationMesh = GameObject.Instantiate(sourceMesh);
+            visualizationWireMesh = GameObject.Instantiate(sourceMesh);
 
             if (gradientMaterial.SetPass(0))
             {
@@ -157,15 +162,16 @@ namespace Obi
                             colors[i] = Color.gray;
                     }
 
-                    visualizationMesh.colors = colors;
+                    visualizationWireMesh.colors = colors;
                     GL.wireframe = true;
-                    Graphics.DrawMeshNow(visualizationMesh, matrix);
+                    Graphics.DrawMeshNow(visualizationWireMesh, matrix);
                     GL.wireframe = false;
                 }
 
             }
 
             GameObject.DestroyImmediate(visualizationMesh);
+            GameObject.DestroyImmediate(visualizationWireMesh);
         }
 
       
@@ -223,7 +229,8 @@ namespace Obi
             RenderTexture.active = tempRT;
 
             GL.PushMatrix();
-            GL.LoadProjectionMatrix(Matrix4x4.Ortho(0, 1, 0, 1, -1, 1));
+
+            var proj = Matrix4x4.Ortho(0, 1, 0, 1, -1, 1);            if (Camera.current != null) proj = proj * Camera.current.worldToCameraMatrix.inverse;            GL.LoadProjectionMatrix(proj);
 
             Color[] colors = new Color[sourceMesh.vertexCount];
             for (int i = 0; i < colors.Length; i++)

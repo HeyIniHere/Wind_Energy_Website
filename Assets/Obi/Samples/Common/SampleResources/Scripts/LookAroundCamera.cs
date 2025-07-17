@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace Obi
+namespace Obi.Samples
 {
     [RequireComponent(typeof(Camera))]
     public class LookAroundCamera : MonoBehaviour
@@ -64,7 +64,10 @@ namespace Obi
 
             currentShot.position += delta * Time.deltaTime * movementSpeed;
 
-            if (Input.GetKey(KeyCode.Mouse0))
+            var system = UnityEngine.EventSystems.EventSystem.current;
+            bool focusUI = system != null && system.IsPointerOverGameObject();
+
+            if (Input.GetKey(KeyCode.Mouse0) && !focusUI)
             {
                 float deltaX = Input.GetAxis("Mouse X") * rotationSpeed;
                 float deltaY = Input.GetAxis("Mouse Y") * rotationSpeed;

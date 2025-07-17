@@ -14,29 +14,27 @@ namespace Obi
     [CustomEditor(typeof(ObiActorBlueprint), true)]
     public class ObiActorBlueprintEditor : Editor, IObiSelectableParticleProvider
     {
-        protected IEnumerator routine;
-
         public List<ObiBlueprintEditorTool> tools = new List<ObiBlueprintEditorTool>();
         public int currentToolIndex = 0;
 
-        protected List<ObiBlueprintPropertyBase> properties = new List<ObiBlueprintPropertyBase>();
+        public List<ObiBlueprintPropertyBase> properties = new List<ObiBlueprintPropertyBase>();
         public int currentPropertyIndex = 0;
 
-        protected List<ObiBlueprintRenderMode> renderModes = new List<ObiBlueprintRenderMode>();
+        public List<ObiBlueprintRenderMode> renderModes = new List<ObiBlueprintRenderMode>();
         public int renderModeFlags = 0;
         BooleanPreference showRenderModes;
 
+        public bool autoGenerate = false;
         public bool editMode = false;
         public bool isEditing = false;
-        protected List<SceneStateCache> m_SceneStates;
-        protected SceneSetup[] oldSetup;
         protected UnityEngine.Object oldSelection;
 
         //Additional status info for all particles:
-        public float dotRadiusScale = 1;
-        public int selectedCount = 0;
-        public int activeParticle = -1;
-        public bool[] selectionStatus = new bool[0];
+        public static float dotRadiusScale = 1;
+        public static int selectedCount = 0;
+        public static int activeParticle = -1;
+        public static bool[] selectionStatus = new bool[0];
+
         public bool[] visible = new bool[0];
         public Color[] tint = new Color[0];
         protected float[] sqrDistanceToCamera = new float[0];
@@ -78,6 +76,10 @@ namespace Obi
 
         public virtual void OnEnable()
         {
+            properties.Clear();
+            renderModes.Clear();
+            tools.Clear();
+
             properties.Add(new ObiBlueprintMass(this));
             properties.Add(new ObiBlueprintRadius(this));
             properties.Add(new ObiBlueprintFilterCategory(this));
@@ -88,11 +90,12 @@ namespace Obi
 
 #if (UNITY_2019_1_OR_NEWER)
             renderCallback = new System.Action<ScriptableRenderContext, Camera>((cntxt, cam) => { DrawWithCamera(cam); });
-            RenderPipelineManager.beginCameraRendering -= renderCallback;
             RenderPipelineManager.beginCameraRendering += renderCallback;
 #endif
-            Camera.onPreCull -= DrawWithCamera;
             Camera.onPreCull += DrawWithCamera;
+            SceneView.duringSceneGui += OnSceneGUI;
+
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
         }
 
         public virtual void OnDisable()
@@ -103,8 +106,8 @@ namespace Obi
             RenderPipelineManager.beginCameraRendering -= renderCallback;
 #endif
             Camera.onPreCull -= DrawWithCamera;
-
-            ObiParticleEditorDrawing.DestroyParticlesMesh();
+            SceneView.duringSceneGui -= OnSceneGUI;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
 
             foreach (var tool in tools)
             {
@@ -116,51 +119,77 @@ namespace Obi
             {
                 renderMode.OnDestroy();
             }
-
-            properties.Clear();
-            renderModes.Clear();
         }
 
-        protected void Generate()
+        void OnPlayModeStateChanged(PlayModeStateChange playmodeState)
         {
-            if (blueprint.empty)
+            if (playmodeState == PlayModeStateChange.ExitingEditMode)
+            {
+                if (StageUtility.GetCurrentStage() is ObiActorBlueprintEditorStage)
+                    StageUtility.GoToMainStage();
+            }
+        }
+
+        protected bool Generate()
+        {
+            if (!blueprint.edited)
             {
                 EditorUtility.SetDirty(target);
                 CoroutineJob job = new CoroutineJob();
-                routine = job.Start(blueprint.Generate());
-                EditorCoroutine.ShowCoroutineProgressBar("Generating blueprint...", ref routine);
+                IEnumerator routine = job.Start(blueprint.Generate());
+                EditorCoroutine.ShowCoroutineProgressBar("Generating blueprint...", routine);
                 Refresh();
                 EditorGUIUtility.ExitGUI();
             }
             else
             {
-                if (EditorUtility.DisplayDialog("Blueprint generation", "This blueprint already contains data. Are you sure you want to re-generate this blueprint from scratch?", "Ok", "Cancel"))
+                if (EditorUtility.DisplayDialog("Blueprint generation", "This blueprint contains manually edited data. If you regenerate the blueprint, these changes will be lost. Are you sure you want to proceed?", "Ok", "Cancel"))
                 {
                     EditorUtility.SetDirty(target);
                     CoroutineJob job = new CoroutineJob();
-                    routine = job.Start(blueprint.Generate());
-                    EditorCoroutine.ShowCoroutineProgressBar("Generating blueprint...", ref routine);
+                    IEnumerator routine = job.Start(blueprint.Generate());
+                    EditorCoroutine.ShowCoroutineProgressBar("Generating blueprint...", routine);
                     Refresh();
                     EditorGUIUtility.ExitGUI();
                 }
+                else return false;
             }
+            return true;
         }
 
         protected virtual bool ValidateBlueprint() { return true; }
 
+        private void DrawGenerationControls()
+        {
+            GUILayout.BeginHorizontal();
+
+                float originalLabelWidth = EditorGUIUtility.labelWidth;
+                EditorGUIUtility.labelWidth = 72;
+                autoGenerate = EditorGUILayout.ToggleLeft("Auto Generate", autoGenerate, GUILayout.ExpandWidth(false));
+                EditorGUIUtility.labelWidth = originalLabelWidth;
+
+                GUI.enabled = !autoGenerate;
+                if (GUILayout.Button("Generate", GUI.skin.FindStyle("LargeButton"), GUILayout.Height(32)))
+                    Generate();
+
+            GUILayout.EndHorizontal();
+        }
+
         public override void OnInspectorGUI()
         {
-
             serializedObject.UpdateIfRequiredOrScript();
 
             EditorGUILayout.BeginVertical(EditorStyles.inspectorDefaultMargins);
 
+            EditorGUI.BeginChangeCheck();
             DrawBlueprintProperties();
+            bool blueprintPropertiesChanged = EditorGUI.EndChangeCheck();
+            bool blueprintValid = ValidateBlueprint();
 
             GUILayout.Space(10);
-            GUI.enabled = ValidateBlueprint();
-            if (GUILayout.Button("Generate", GUI.skin.FindStyle("LargeButton"), GUILayout.Height(32)))
-                Generate();
+
+            GUI.enabled = blueprintValid;
+            DrawGenerationControls();
 
             GUI.enabled = (blueprint != null && !blueprint.empty && !Application.isPlaying);
             EditorGUI.BeginChangeCheck();
@@ -180,7 +209,10 @@ namespace Obi
 
             if (GUI.changed)
             {
-                serializedObject.ApplyModifiedProperties();
+                serializedObject.ApplyModifiedPropertiesWithoutUndo();
+
+                if (autoGenerate && blueprintValid && blueprintPropertiesChanged)             
+                    blueprint.GenerateImmediate();
 
                 // There might be blueprint editing operations that have no undo entry, so do this to 
                 // ensure changes are serialized to disk by Unity.
@@ -206,51 +238,17 @@ namespace Obi
             }
         }
 
-
-        [System.Serializable]
-        protected class SceneStateCache
-        {
-            public SceneView view;
-            public SceneView.SceneViewState state;
-        }
-
         void EnterBlueprintEditMode()
         {
             if (!isEditing)
             {
-#if (UNITY_2019_1_OR_NEWER)
-                SceneView.duringSceneGui -= this.OnSceneGUI;
-                SceneView.duringSceneGui += this.OnSceneGUI;
-#else
-                SceneView.onSceneGUIDelegate -= this.OnSceneGUI;
-                SceneView.onSceneGUIDelegate += this.OnSceneGUI;
-#endif
+                ActiveEditorTracker.sharedTracker.isLocked = true;
 
-                oldSelection = Selection.activeObject;
-                if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                {
-                    ActiveEditorTracker.sharedTracker.isLocked = true;
+                string assetPath = AssetDatabase.GetAssetPath(blueprint);
+                ObiActorBlueprintEditorStage stage = ObiActorBlueprintEditorStage.CreateStage(assetPath, this);
+                StageUtility.GoToStage(stage, true);
 
-                    oldSetup = EditorSceneManager.GetSceneManagerSetup();
-                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
-
-                    // Set properties for all scene views:
-                    m_SceneStates = new List<SceneStateCache>();
-                    foreach (SceneView s in SceneView.sceneViews)
-                    {
-                        m_SceneStates.Add(new SceneStateCache { state = new SceneView.SceneViewState(s.sceneViewState), view = s });
-                        s.sceneViewState.showFlares = false;
-                        s.sceneViewState.alwaysRefresh = false;
-                        s.sceneViewState.showFog = false;
-                        s.sceneViewState.showSkybox = false;
-                        s.sceneViewState.showImageEffects = false;
-                        s.sceneViewState.showParticleSystems = false;
-                        s.Frame(blueprint.bounds);
-                    }
-
-                    isEditing = true;
-                    Repaint();
-                }
+                isEditing = true;
             }
         }
 
@@ -258,50 +256,16 @@ namespace Obi
         {
             if (isEditing)
             {
-
                 isEditing = false;
-
                 AssetDatabase.SaveAssets();
-
-                // Reset all scene views:
-                foreach (var state in m_SceneStates)
-                {
-                    if (state.view == null)
-                        continue;
-
-                    state.view.sceneViewState.showFog = state.state.showFog;
-                    state.view.sceneViewState.showFlares = state.state.showFlares;
-                    state.view.sceneViewState.alwaysRefresh = state.state.alwaysRefresh;
-                    state.view.sceneViewState.showSkybox = state.state.showSkybox;
-                    state.view.sceneViewState.showImageEffects = state.state.showImageEffects;
-                    state.view.sceneViewState.showParticleSystems = state.state.showParticleSystems;
-                }
-
-                ActiveEditorTracker.sharedTracker.isLocked = false;
-
-                if (SceneManager.GetActiveScene().path.Length <= 0)
-                {
-                    if (oldSetup != null && oldSetup.Length > 0)
-                    {
-                        EditorSceneManager.RestoreSceneManagerSetup(oldSetup);
-                        oldSetup = null;
-                    }
-                    else
-                    {
-                        EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects);
-                    }
-                }
-
-                Selection.activeObject = oldSelection;
-
-#if (UNITY_2019_1_OR_NEWER)
-                SceneView.duringSceneGui -= this.OnSceneGUI;
-#else
-                SceneView.onSceneGUIDelegate -= this.OnSceneGUI;
-#endif
-
-                Repaint();
+                StageUtility.GoToMainStage();
             }
+        }
+
+        public void CleanupEditor()
+        {
+            ActiveEditorTracker.sharedTracker.isLocked = false;
+            ObiParticleEditorDrawing.DestroyParticlesMesh();
         }
 
         public virtual void OnSceneGUI(SceneView sceneView)
@@ -318,7 +282,7 @@ namespace Obi
             {
 
                 // Update camera facing status and world space positions array:
-                UpdateParticleVisibility();
+                UpdateParticleVisibility(sceneView.camera);
 
                 // Generate sorted indices for back-to-front rendering:
                 for (int i = 0; i < sortedIndices.Length; i++)
@@ -339,7 +303,7 @@ namespace Obi
                 UpdateTintColor();
 
                 // Draw particle handles:
-                ObiParticleEditorDrawing.DrawParticles(sceneView.camera, blueprint, activeParticle, visible, tint, sortedIndices, dotRadiusScale);
+                ObiParticleEditorDrawing.DrawParticles(sceneView.camera, blueprint, visible, tint, sortedIndices, dotRadiusScale);
 
             }
 
@@ -370,6 +334,7 @@ namespace Obi
         {
             if (blueprint.positions != null)
             {
+                activeParticle = Mathf.Min(activeParticle, blueprint.positions.Length - 1);
                 Array.Resize(ref selectionStatus, blueprint.positions.Length);
                 Array.Resize(ref visible, blueprint.positions.Length);
                 Array.Resize(ref tint, blueprint.positions.Length);
@@ -413,7 +378,9 @@ namespace Obi
 
         public void Refresh()
         {
-            currentProperty.RecalculateMinMax();
+            // currentProperty might be null after reloading editor during
+            // asset saving.
+            currentProperty?.RecalculateMinMax();
 
             // refresh render modes:
             for (int i = 0; i < renderModes.Count; ++i)
@@ -425,7 +392,7 @@ namespace Obi
             SceneView.RepaintAll();
         }
 
-        public virtual void UpdateParticleVisibility()
+        public virtual void UpdateParticleVisibility(Camera cam)
         {
 
             for (int i = 0; i < blueprint.positions.Length; i++)
@@ -436,7 +403,7 @@ namespace Obi
 
                     if (Camera.current != null)
                     {
-                        Vector3 camToParticle = Camera.current.transform.position - blueprint.positions[i];
+                        Vector3 camToParticle = cam.transform.position - blueprint.positions[i];
                         sqrDistanceToCamera[i] = camToParticle.sqrMagnitude;
                     }
                 }

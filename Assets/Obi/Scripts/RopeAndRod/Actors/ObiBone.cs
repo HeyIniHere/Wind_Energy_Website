@@ -7,7 +7,8 @@ namespace Obi
     [AddComponentMenu("Physics/Obi/Obi Bone", 882)]
     [ExecuteInEditMode]
     [DisallowMultipleComponent]
-    public class ObiBone : ObiActor, IStretchShearConstraintsUser, IBendTwistConstraintsUser, ISkinConstraintsUser
+    [DefaultExecutionOrder(100)] // make sure ObiBone's LateUpdate is updated after ObiSolver's.
+    public class ObiBone : ObiActor, IStretchShearConstraintsUser, IBendTwistConstraintsUser, ISkinConstraintsUser, IAerodynamicConstraintsUser
     {
         [Serializable]
         public class BonePropertyCurve
@@ -31,7 +32,7 @@ namespace Obi
         [Serializable]
         public class IgnoredBone
         {
-            public Transform bone; 
+            public Transform bone;
             public bool ignoreChildren;
         }
 
@@ -39,9 +40,9 @@ namespace Obi
 
         [SerializeField] protected bool m_SelfCollisions = false;
 
-        [SerializeField] protected BonePropertyCurve _radius = new BonePropertyCurve(0.1f,1);
-        [SerializeField] protected BonePropertyCurve _mass = new BonePropertyCurve(0.1f,1);
-        [SerializeField] protected BonePropertyCurve _rotationalMass = new BonePropertyCurve(0.1f,1);
+        [SerializeField] protected BonePropertyCurve _radius = new BonePropertyCurve(0.1f, 1);
+        [SerializeField] protected BonePropertyCurve _mass = new BonePropertyCurve(0.1f, 1);
+        [SerializeField] protected BonePropertyCurve _rotationalMass = new BonePropertyCurve(0.1f, 1);
 
         // skin constraints:
         [SerializeField] protected bool _skinConstraintsEnabled = true;
@@ -61,6 +62,11 @@ namespace Obi
         [SerializeField] protected BonePropertyCurve _bend2Compliance = new BonePropertyCurve(0, 1);
         [SerializeField] protected BonePropertyCurve _plasticYield = new BonePropertyCurve(0, 1);
         [SerializeField] protected BonePropertyCurve _plasticCreep = new BonePropertyCurve(0, 1);
+
+        // aerodynamics
+        [SerializeField] protected bool _aerodynamicsEnabled = true;
+        [SerializeField] protected BonePropertyCurve _drag = new BonePropertyCurve(0.05f, 1);
+        [SerializeField] protected BonePropertyCurve _lift = new BonePropertyCurve(0.02f, 1);
 
         [Tooltip("Filter used for collision detection.")]
         [SerializeField] private int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 1);
@@ -236,7 +242,34 @@ namespace Obi
         public BonePropertyCurve plasticCreep
         {
             get { return _plasticCreep; }
-            set { _plasticCreep = value; SetConstraintsDirty(Oni.ConstraintType.BendTwist); } 
+            set { _plasticCreep = value; SetConstraintsDirty(Oni.ConstraintType.BendTwist); }
+        }
+
+        /// <summary>  
+        ///   Whether this actor's aerodynamic constraints are enabled.
+        /// </summary>
+        public bool aerodynamicsEnabled
+        {
+            get { return _aerodynamicsEnabled; }
+            set { if (value != _aerodynamicsEnabled) { _aerodynamicsEnabled = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); } }
+        }
+
+        /// <summary>  
+        /// Aerodynamic drag value.
+        /// </summary>
+        public BonePropertyCurve drag
+        {
+            get { return _drag; }
+            set { _drag = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); }
+        }
+
+        /// <summary>  
+        /// Aerodynamic lift value.
+        /// </summary>
+        public BonePropertyCurve lift
+        {
+            get { return _lift; }
+            set { _lift = value; SetConstraintsDirty(Oni.ConstraintType.Aerodynamics); }
         }
 
 
@@ -262,6 +295,7 @@ namespace Obi
 
         protected override void Awake()
         {
+            // TODO: guard against having another ObiBone above it in hierarchy.
             m_BoneBlueprint = ScriptableObject.CreateInstance<ObiBoneBlueprint>();
             UpdateBlueprint();
             base.Awake();
@@ -297,18 +331,45 @@ namespace Obi
             }
         }
 
-        public override void LoadBlueprint(ObiSolver solver)
+        internal override void LoadBlueprint()
         {
-            base.LoadBlueprint(solver);
+            base.LoadBlueprint();
+
+            // synchronously read required data from GPU:
+            solver.renderablePositions.Readback(false);
+            solver.renderableOrientations.Readback(false);
+            solver.orientations.Readback(false);
+            solver.angularVelocities.Readback(false);
+
             SetupRuntimeConstraints();
             ResetToCurrentShape();
         }
 
-        public override void UnloadBlueprint(ObiSolver solver)
+        internal override void UnloadBlueprint()
         {
             ResetParticles();
             CopyParticleDataToTransforms();
-            base.UnloadBlueprint(solver);
+            base.UnloadBlueprint();
+        }
+
+        public override void RequestReadback()
+        {
+            base.RequestReadback();
+
+            solver.orientations.Readback();
+            solver.angularVelocities.Readback();
+            solver.renderablePositions.Readback();
+            solver.renderableOrientations.Readback();
+        }
+
+        public override void SimulationEnd(float simulatedTime, float substepTime)
+        {
+            base.SimulationEnd(simulatedTime, substepTime);
+
+            solver.orientations.WaitForReadback();
+            solver.angularVelocities.WaitForReadback();
+            solver.renderablePositions.WaitForReadback();
+            solver.renderableOrientations.WaitForReadback();
         }
 
         private void SetupRuntimeConstraints()
@@ -316,10 +377,21 @@ namespace Obi
             SetConstraintsDirty(Oni.ConstraintType.Skin);
             SetConstraintsDirty(Oni.ConstraintType.StretchShear);
             SetConstraintsDirty(Oni.ConstraintType.BendTwist);
+            SetConstraintsDirty(Oni.ConstraintType.Aerodynamics);
             SetSelfCollisions(selfCollisions);
             SetSimplicesDirty();
             UpdateFilter();
-            UpdateCollisionMaterials();
+        }
+
+        public override void ProvideDeformableEdges(ObiNativeIntList deformableEdges)
+        {
+            var boneBprint = sharedBlueprint as ObiBoneBlueprint;
+            if (boneBprint != null && boneBprint.deformableEdges != null)
+            {
+                // Send deformable edge indices to the solver:
+                for (int i = 0; i < boneBprint.deformableEdges.Length; ++i)
+                    deformableEdges.Add(solverIndices[boneBprint.deformableEdges[i]]);
+            }
         }
 
         private void FixRoot()
@@ -337,10 +409,10 @@ namespace Obi
                 solver.angularVelocities[rootIndex] = Vector4.zero;
 
                 // take particle rest position in actor space (which is always zero), converts to solver space:
-                solver.renderablePositions[rootIndex] = solver.positions[rootIndex] = actor2Solver.MultiplyPoint3x4(Vector3.zero);
+                solver.startPositions[rootIndex] = solver.endPositions[rootIndex] = solver.positions[rootIndex] = actor2Solver.MultiplyPoint3x4(Vector3.zero);
 
                 // take particle rest orientation in actor space, and convert to solver space:
-                solver.renderableOrientations[rootIndex] = solver.orientations[rootIndex] = actor2SolverR * boneBlueprint.orientations[0];
+                solver.startOrientations[rootIndex] = solver.endOrientations[rootIndex] = solver.orientations[rootIndex] = actor2SolverR * boneBlueprint.orientations[0];
             }
         }
 
@@ -358,8 +430,8 @@ namespace Obi
         {
             for (int i = 0; i < particleCount; ++i)
             {
-                var normalizedCoord = boneBlueprint.normalizedLengths[i];
-                var radii = Vector3.one * radius.Evaluate(normalizedCoord);
+                var boneOverride = boneBlueprint.GetOverride(i, out float normalizedCoord);
+                var radii = Vector3.one * (boneOverride != null ? boneOverride.radius.Evaluate(normalizedCoord) : radius.Evaluate(normalizedCoord));
                 boneBlueprint.principalRadii[i] = radii;
 
                 if (isLoaded)
@@ -371,9 +443,9 @@ namespace Obi
         {
             for (int i = 0; i < particleCount; ++i)
             {
-                var normalizedCoord = boneBlueprint.normalizedLengths[i];
-                var invMass = ObiUtils.MassToInvMass(mass.Evaluate(normalizedCoord));
-                var invRotMass = ObiUtils.MassToInvMass(rotationalMass.Evaluate(normalizedCoord));
+                var boneOverride = boneBlueprint.GetOverride(i, out float normalizedCoord);
+                var invMass = ObiUtils.MassToInvMass(boneOverride != null ? boneOverride .mass.Evaluate(normalizedCoord) : mass.Evaluate(normalizedCoord));
+                var invRotMass = ObiUtils.MassToInvMass(boneOverride != null ? boneOverride.rotationalMass.Evaluate(normalizedCoord) : rotationalMass.Evaluate(normalizedCoord));
 
                 boneBlueprint.invMasses[i] = invMass;
                 boneBlueprint.invRotationalMasses[i] = invRotMass;
@@ -388,20 +460,24 @@ namespace Obi
 
         public Vector3 GetSkinRadiiBackstop(ObiSkinConstraintsBatch batch, int constraintIndex)
         {
-            float normalizedCoord = boneBlueprint.normalizedLengths[batch.particleIndices[constraintIndex]];
-            return new Vector3(skinRadius.Evaluate(normalizedCoord),0,0);
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex], out float normalizedCoord);
+            return new Vector3(boneOverride != null ? boneOverride.skinRadius.Evaluate(normalizedCoord) : skinRadius.Evaluate(normalizedCoord), 0, 0);
         }
 
         public float GetSkinCompliance(ObiSkinConstraintsBatch batch, int constraintIndex)
         {
-            float normalizedCoord = boneBlueprint.normalizedLengths[batch.particleIndices[constraintIndex]];
-            return skinCompliance.Evaluate(normalizedCoord);
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex], out float normalizedCoord);
+            return boneOverride != null ? boneOverride.skinCompliance.Evaluate(normalizedCoord) : skinCompliance.Evaluate(normalizedCoord);
         }
-
 
         public Vector3 GetBendTwistCompliance(ObiBendTwistConstraintsBatch batch, int constraintIndex)
         {
-            float normalizedCoord = boneBlueprint.normalizedLengths[batch.particleIndices[constraintIndex * 2]];
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex * 2], out float normalizedCoord);
+
+            if (boneOverride != null)
+            return new Vector3(boneOverride.bend1Compliance.Evaluate(normalizedCoord),
+                               boneOverride.bend2Compliance.Evaluate(normalizedCoord),
+                               boneOverride.torsionCompliance.Evaluate(normalizedCoord));
             return new Vector3(bend1Compliance.Evaluate(normalizedCoord),
                                bend2Compliance.Evaluate(normalizedCoord),
                                torsionCompliance.Evaluate(normalizedCoord));
@@ -409,22 +485,51 @@ namespace Obi
 
         public Vector2 GetBendTwistPlasticity(ObiBendTwistConstraintsBatch batch, int constraintIndex)
         {
-            float normalizedCoord = boneBlueprint.normalizedLengths[batch.particleIndices[constraintIndex * 2]];
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex * 2], out float normalizedCoord);
+
+            if (boneOverride != null)
+            return new Vector2(boneOverride.plasticYield.Evaluate(normalizedCoord),
+                               boneOverride.plasticCreep.Evaluate(normalizedCoord));
             return new Vector2(plasticYield.Evaluate(normalizedCoord),
                                plasticCreep.Evaluate(normalizedCoord));
+
         }
 
         public Vector3 GetStretchShearCompliance(ObiStretchShearConstraintsBatch batch, int constraintIndex)
         {
-            float normalizedCoord = boneBlueprint.normalizedLengths[batch.particleIndices[constraintIndex * 2]];
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex * 2], out float normalizedCoord);
+
+            if (boneOverride != null)
+            return new Vector3(boneOverride.shear1Compliance.Evaluate(normalizedCoord),
+                               boneOverride.shear2Compliance.Evaluate(normalizedCoord),
+                               boneOverride.stretchCompliance.Evaluate(normalizedCoord));
             return new Vector3(shear1Compliance.Evaluate(normalizedCoord),
                                shear2Compliance.Evaluate(normalizedCoord),
                                stretchCompliance.Evaluate(normalizedCoord));
         }
 
-        public override void BeginStep(float stepTime)
+        public float GetDrag(ObiAerodynamicConstraintsBatch batch, int constraintIndex)
         {
-            base.BeginStep(stepTime);
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex], out float normalizedCoord);
+            return boneOverride != null ? boneOverride.drag.Evaluate(normalizedCoord) : drag.Evaluate(normalizedCoord);
+        }
+
+        public float GetLift(ObiAerodynamicConstraintsBatch batch, int constraintIndex)
+        {
+            var boneOverride = boneBlueprint.GetOverride(batch.particleIndices[constraintIndex], out float normalizedCoord);
+            return boneOverride != null ? boneOverride.lift.Evaluate(normalizedCoord) : lift.Evaluate(normalizedCoord);
+        }
+
+        public void FixedUpdate()
+        {
+            // This resets all bones not affected by animation,
+            // needs to happen once per frame at the very start before Animators are updated.
+            ResetReferenceOrientations();
+        }
+
+        public override void SimulationStart(float timeToSimulate, float substepTime)
+        {
+            base.SimulationStart(timeToSimulate, substepTime);
 
             if (fixRoot)
                 FixRoot();
@@ -432,18 +537,10 @@ namespace Obi
             UpdateRestShape();
         }
 
-        public override void PrepareFrame()
-        {
-            ResetReferenceOrientations();
-            base.PrepareFrame();
-        }
-
-        public override void Interpolate()
+        public void LateUpdate()
         {
             if (Application.isPlaying && isActiveAndEnabled)
                 CopyParticleDataToTransforms();
-
-            base.Interpolate();
         }
 
         /// <summary>
@@ -463,11 +560,49 @@ namespace Obi
                 solver.velocities[solverIndex] = Vector4.zero;
                 solver.angularVelocities[solverIndex] = Vector4.zero;
 
-                solver.renderablePositions[solverIndex] = solver.positions[solverIndex] = world2Solver.MultiplyPoint3x4(trfm.position);
+                solver.startPositions[solverIndex] = solver.endPositions[solverIndex] = solver.positions[solverIndex] = world2Solver.MultiplyPoint3x4(trfm.position);
 
                 var boneDeltaAWS = trfm.rotation * Quaternion.Inverse(boneBlueprint.restOrientations[i]);
-                solver.renderableOrientations[solverIndex] = solver.orientations[solverIndex] = world2Solver.rotation * boneDeltaAWS * boneBlueprint.root2WorldR * boneBlueprint.orientations[i];
+                solver.startOrientations[solverIndex] = solver.endOrientations[solverIndex] = solver.orientations[solverIndex] = world2Solver.rotation * boneDeltaAWS * boneBlueprint.root2WorldR * boneBlueprint.orientations[i];
             }
+
+            // Update constraint data in the blueprint, since StartSimulation won't be called until next frame.
+            var bc = GetConstraintsByType(Oni.ConstraintType.BendTwist) as ObiConstraints<ObiBendTwistConstraintsBatch>;
+
+            if (bc != null)
+                for (int j = 0; j < bc.batchCount; ++j)
+                {
+                    var batch = bc.GetBatch(j) as ObiBendTwistConstraintsBatch;
+
+                    for (int i = 0; i < batch.activeConstraintCount; i++)
+                    {
+                        int indexA = batch.particleIndices[i * 2];
+                        int indexB = batch.particleIndices[i * 2 + 1];
+
+                        // calculate bone rotation delta in world space:
+                        var boneDeltaAWS = boneBlueprint.transforms[indexA].rotation * Quaternion.Inverse(boneBlueprint.restOrientations[indexA]);
+                        var boneDeltaBWS = boneBlueprint.transforms[indexB].rotation * Quaternion.Inverse(boneBlueprint.restOrientations[indexB]);
+
+                        // apply delta to rest particle orientation:
+                        var orientationA = boneDeltaAWS * boneBlueprint.root2WorldR * boneBlueprint.orientations[indexA];
+                        var orientationB = boneDeltaBWS * boneBlueprint.root2WorldR * boneBlueprint.orientations[indexB];
+
+                        batch.restDarbouxVectors[i] = ObiUtils.RestDarboux(orientationA, orientationB);
+                    }
+                }
+
+            var sc = GetConstraintsByType(Oni.ConstraintType.Skin) as ObiConstraints<ObiSkinConstraintsBatch>;
+
+            if (sc != null)
+                for (int j = 0; j < sc.batchCount; ++j)
+                {
+                    var batch = sc.GetBatch(j) as ObiSkinConstraintsBatch;
+                    for (int i = 0; i < batch.activeConstraintCount; i++)
+                    {
+                        int index = batch.particleIndices[i];
+                        batch.skinPoints[i] = solver.transform.worldToLocalMatrix.MultiplyPoint3x4(boneBlueprint.transforms[index].position);
+                    }
+                }
         }
 
         private void ResetReferenceOrientations()
@@ -484,14 +619,20 @@ namespace Obi
             var sbc = solver.GetConstraintsByType(Oni.ConstraintType.BendTwist) as ObiConstraints<ObiBendTwistConstraintsBatch>;
 
             if (bendTwistConstraintsEnabled && bc != null && sbc != null)
-                for (int j = 0; j < bc.GetBatchCount(); ++j)
+            {
+                // iterate up to the amount of entries in solverBatchOffsets, insteaf of bc.batchCount. This ensures
+                // the batches we access have been added to the solver, as solver.UpdateConstraints() could have not been called yet on a newly added actor.
+                for (int j = 0; j < solverBatchOffsets[(int)Oni.ConstraintType.BendTwist].Count; ++j)
                 {
                     var batch = bc.GetBatch(j) as ObiBendTwistConstraintsBatch;
                     var solverBatch = sbc.batches[j] as ObiBendTwistConstraintsBatch;
-                    int offset = solverBatchOffsets[(int)solverBatch.constraintType][j];
+                    int offset = solverBatchOffsets[(int)Oni.ConstraintType.BendTwist][j];
 
                     if (solverBatch.restDarbouxVectors.isCreated)
                     {
+                        if (solverBatch.restDarbouxVectors.computeBuffer == null)
+                            solverBatch.restDarbouxVectors.SafeAsComputeBuffer<Vector4>();
+
                         for (int i = 0; i < batch.activeConstraintCount; i++)
                         {
                             int indexA = batch.particleIndices[i * 2];
@@ -507,34 +648,45 @@ namespace Obi
 
                             solverBatch.restDarbouxVectors[offset + i] = ObiUtils.RestDarboux(orientationA, orientationB);
                         }
+
+                        solverBatch.restDarbouxVectors.Upload();
                     }
                 }
+            }
 
             var sc = GetConstraintsByType(Oni.ConstraintType.Skin) as ObiConstraints<ObiSkinConstraintsBatch>;
             var ssc = solver.GetConstraintsByType(Oni.ConstraintType.Skin) as ObiConstraints<ObiSkinConstraintsBatch>;
 
             if (skinConstraintsEnabled && sc != null && ssc != null)
-                for (int j = 0; j < sc.GetBatchCount(); ++j)
+            {
+                // iterate up to the amount of entries in solverBatchOffsets, insteaf of sc.batchCount. This ensures
+                // the batches we access have been added to the solver, as solver.UpdateConstraints() could have not been called yet on a newly added actor.
+                for (int j = 0; j < solverBatchOffsets[(int)Oni.ConstraintType.Skin].Count; ++j)
                 {
                     var batch = sc.GetBatch(j) as ObiSkinConstraintsBatch;
                     var solverBatch = ssc.batches[j] as ObiSkinConstraintsBatch;
-                    int offset = solverBatchOffsets[(int)solverBatch.constraintType][j];
+                    int offset = solverBatchOffsets[(int)Oni.ConstraintType.Skin][j];
 
                     if (solverBatch.skinPoints.isCreated)
                     {
+                        if (solverBatch.skinPoints.computeBuffer == null)
+                            solverBatch.skinPoints.SafeAsComputeBuffer<Vector4>();
+
                         for (int i = 0; i < batch.activeConstraintCount; i++)
                         {
                             int index = batch.particleIndices[i];
                             solverBatch.skinPoints[offset + i] = solver.transform.worldToLocalMatrix.MultiplyPoint3x4(boneBlueprint.transforms[index].position);
                         }
+
+                        solverBatch.skinPoints.Upload();
                     }
                 }
+            }
         }
 
         private void CopyParticleDataToTransforms()
         {
-
-            if (boneBlueprint != null)
+            if (isLoaded && boneBlueprint != null)
             {
                 // copy current particle transforms to bones:
                 for (int i = 1; i < particleCount; ++i)

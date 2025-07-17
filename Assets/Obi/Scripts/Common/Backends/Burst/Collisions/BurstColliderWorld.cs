@@ -4,6 +4,8 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Burst;
+using System.Threading;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Obi
 {
@@ -18,23 +20,31 @@ namespace Obi
             public int entity;
         }
 
-        private int refCount = 0;
-        private int colliderCount = 0;
+        public int referenceCount { get; private set; } = 0;
+        public int colliderCount { get; private set; } = 0;
 
         private NativeMultilevelGrid<int> grid;
         private NativeQueue<MovingCollider> movingColliders;
+
+        private NativeArray<int> colliderTypeCounts;
+        private NativeQueue<Oni.ContactPair> contactPairQueue;
+        public NativeList<Oni.ContactPair> contactPairs;
+        public NativeArray<int> contactOffsetsPerType;
+
         public NativeQueue<BurstContact> colliderContactQueue;
 
         public ObiNativeCellSpanList cellSpans;
 
-        public int referenceCount { get { return refCount; } }
-
         public void Awake()
         {
-
             this.grid = new NativeMultilevelGrid<int>(1000, Allocator.Persistent);
             this.movingColliders = new NativeQueue<MovingCollider>(Allocator.Persistent);
             this.colliderContactQueue = new NativeQueue<BurstContact>(Allocator.Persistent);
+
+            this.contactPairQueue = new NativeQueue<Oni.ContactPair>(Allocator.Persistent);
+            this.colliderTypeCounts = new NativeArray<int>(Oni.ColliderShapeTypeCount, Allocator.Persistent);
+            this.contactOffsetsPerType = new NativeArray<int>(Oni.ColliderShapeTypeCount + 1, Allocator.Persistent);
+            this.contactPairs = new NativeList<Oni.ContactPair>(Allocator.Persistent);
 
             this.cellSpans = new ObiNativeCellSpanList();
 
@@ -47,23 +57,30 @@ namespace Obi
 
             grid.Dispose();
             movingColliders.Dispose();
+
+            colliderTypeCounts.Dispose();
+            contactPairQueue.Dispose();
+            contactPairs.Dispose();
+            contactOffsetsPerType.Dispose();
+
             colliderContactQueue.Dispose();
+
             cellSpans.Dispose();
         }
 
         public void IncreaseReferenceCount()
         {
-            refCount++;
+            referenceCount++;
         }
         public void DecreaseReferenceCount()
         {
-            if (--refCount <= 0 && gameObject != null)
+            if (--referenceCount <= 0 && gameObject != null)
                 DestroyImmediate(gameObject);  
         }
 
-        public void SetColliders(ObiNativeColliderShapeList shapes, ObiNativeAabbList bounds, ObiNativeAffineTransformList transforms, int count)
+        public void SetColliders(ObiNativeColliderShapeList shapes, ObiNativeAabbList bounds, ObiNativeAffineTransformList transforms)
         {
-            colliderCount = count;
+            colliderCount = shapes.count;
 
             // insert new empty cellspans at the end if needed:
             while (colliderCount > cellSpans.count)
@@ -71,6 +88,10 @@ namespace Obi
         }
 
         public void SetRigidbodies(ObiNativeRigidbodyList rigidbody)
+        {
+        }
+
+        public void SetForceZones(ObiNativeForceZoneList rigidbody)
         {
         }
 
@@ -162,7 +183,7 @@ namespace Obi
                                                           new int4(GridHash.Quantize(velocityBounds.max.xyz, cellSize), level));
 
                 // if the collider is 2D, project it to the z = 0 cells.
-                if (shapes[i].is2D != 0)
+                if (shapes[i].is2D)
                 {
                     newSpan.min[2] = 0;
                     newSpan.max[2] = 0;
@@ -173,7 +194,7 @@ namespace Obi
                 if (i >= colliderCount || cellIndices[i] != newSpan)
                 {
                     // Add the collider to the list of moving colliders:
-                    movingColliders.Enqueue(new MovingCollider()
+                    movingColliders.Enqueue(new MovingCollider
                     {
                         oldSpan = cellIndices[i],
                         newSpan = newSpan,
@@ -230,6 +251,7 @@ namespace Obi
             [ReadOnly] public NativeArray<float> invMasses;
             [ReadOnly] public NativeArray<float4> radii;
             [ReadOnly] public NativeArray<int> filters;
+            [ReadOnly] public NativeArray<int> particleMaterialIndices;
 
             // simplex arrays:
             [ReadOnly] public NativeArray<int> simplices;
@@ -243,47 +265,27 @@ namespace Obi
             [ReadOnly] public NativeArray<BurstRigidbody> rigidbodies;
             [ReadOnly] public NativeArray<BurstAabb> bounds;
 
-            // distance field data:
-            [ReadOnly] public NativeArray<DistanceFieldHeader> distanceFieldHeaders;
-            [ReadOnly] public NativeArray<BurstDFNode> distanceFieldNodes;
-
-            // triangle mesh data:
-            [ReadOnly] public NativeArray<TriangleMeshHeader> triangleMeshHeaders;
-            [ReadOnly] public NativeArray<BIHNode> bihNodes;
-            [ReadOnly] public NativeArray<Triangle> triangles;
-            [ReadOnly] public NativeArray<float3> vertices;
-
-            // edge mesh data:
-            [ReadOnly] public NativeArray<EdgeMeshHeader> edgeMeshHeaders;
-            [ReadOnly] public NativeArray<BIHNode> edgeBihNodes;
-            [ReadOnly] public NativeArray<Edge> edges;
-            [ReadOnly] public NativeArray<float2> edgeVertices;
-
-            // height field data:
-            [ReadOnly] public NativeArray<HeightFieldHeader> heightFieldHeaders;
-            [ReadOnly] public NativeArray<float> heightFieldSamples;
-
-            // output contacts queue:
             [WriteOnly]
             [NativeDisableParallelForRestriction]
-            public NativeQueue<BurstContact>.ParallelWriter contactsQueue;
+            public NativeQueue<Oni.ContactPair>.ParallelWriter contactPairQueue;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<int> colliderTypeCounts;
 
             // auxiliar data:
             [ReadOnly] public BurstAffineTransform solverToWorld;
-            [ReadOnly] public BurstAffineTransform worldToSolver;
             [ReadOnly] public float deltaTime;
             [ReadOnly] public Oni.SolverParameters parameters;
 
             public void Execute(int i)
             {
                 int simplexStart = simplexCounts.GetSimplexStartAndSize(i, out int simplexSize);
-                BurstAabb simplexBoundsSS = simplexBounds[i];
 
                 // get all colliders overlapped by the cell bounds, in all grid levels:
-                BurstAabb simplexBoundsWS = simplexBoundsSS.Transformed(solverToWorld);
+                BurstAabb simplexBoundsWS = simplexBounds[i].Transformed(solverToWorld);
                 NativeList<int> candidates = new NativeList<int>(16,Allocator.Temp);
 
-                // max size of the particle bounds in cells:
+                // max size of the simplex bounds in cells:
                 int3 maxSize = new int3(10);
                 bool is2D = parameters.mode == Oni.SolverParameters.Mode.Mode2D;
 
@@ -360,139 +362,203 @@ namespace Obi
 
                             if (shouldCollide && simplexBoundsWS.IntersectsAabb(in colliderBoundsWS, is2D))
                             {
-                                // generate contacts for the collider:
-                                BurstAffineTransform colliderToSolver = worldToSolver * transforms[c];
-                                GenerateContacts(in shape, in colliderToSolver, c, rb, i, simplexStart, simplexSize, simplexBoundsSS);
+                                // increment the amount of contacts for this shape type:
+                                Interlocked.Increment(ref ((int*)colliderTypeCounts.GetUnsafePtr())[(int)shape.type]);
+
+                                // enqueue a new contact pair:
+                                contactPairQueue.Enqueue(new Oni.ContactPair{
+                                    bodyA = i,
+                                    bodyB = c
+                                });
                             }
                         }
                     }
                 }
             }
-
-            private void GenerateContacts(in BurstColliderShape shape,
-                                          in BurstAffineTransform colliderToSolver,
-                                          int colliderIndex,
-                                          int rigidbodyIndex,
-                                          int simplexIndex,
-                                          int simplexStart,
-                                          int simplexSize,
-                                          in BurstAabb simplexBoundsSS)
-            {
-                float4x4 solverToCollider;
-                BurstAabb simplexBoundsCS;
-
-                switch (shape.type)
-                {
-                    case ColliderShape.ShapeType.Sphere:
-                        BurstSphere sphereShape = new BurstSphere() { colliderToSolver = colliderToSolver, shape = shape, dt = deltaTime };
-                        sphereShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsSS,
-                                             simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-                        break;
-                    case ColliderShape.ShapeType.Box:
-                        BurstBox boxShape = new BurstBox() { colliderToSolver = colliderToSolver, shape = shape, dt = deltaTime };
-                        boxShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsSS,
-                                          simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-                        break;
-                    case ColliderShape.ShapeType.Capsule:
-                        BurstCapsule capsuleShape = new BurstCapsule(){colliderToSolver = colliderToSolver,shape = shape, dt = deltaTime };
-                        capsuleShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsSS,
-                                              simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-                        break;
-                    case ColliderShape.ShapeType.SignedDistanceField:
-
-                        if (shape.dataIndex < 0) return;
-
-                        BurstDistanceField distanceFieldShape = new BurstDistanceField()
-                        {
-                            colliderToSolver = colliderToSolver,
-                            solverToWorld = solverToWorld,
-                            shape = shape,
-                            distanceFieldHeaders = distanceFieldHeaders,
-                            dfNodes = distanceFieldNodes,
-                            dt = deltaTime,
-                            collisionMargin = parameters.collisionMargin
-                        };
-
-                        distanceFieldShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsSS,
-                                                    simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-
-                        break;
-                    case ColliderShape.ShapeType.Heightmap:
-
-                        if (shape.dataIndex < 0) return;
-
-                        // invert a full matrix here to accurately represent collider bounds scale.
-                        solverToCollider = math.inverse(float4x4.TRS(colliderToSolver.translation.xyz, colliderToSolver.rotation, colliderToSolver.scale.xyz));
-                        simplexBoundsCS = simplexBoundsSS.Transformed(solverToCollider);
-
-                        BurstHeightField heightmapShape = new BurstHeightField()
-                        {
-                            colliderToSolver = colliderToSolver,
-                            solverToWorld = solverToWorld,
-                            shape = shape,
-                            header = heightFieldHeaders[shape.dataIndex],
-                            heightFieldSamples = heightFieldSamples,
-                            collisionMargin = parameters.collisionMargin,
-                            dt = deltaTime
-                        };
-
-                        heightmapShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsCS,
-                                                    simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-
-                        break;
-                    case ColliderShape.ShapeType.TriangleMesh:
-
-                        if (shape.dataIndex < 0) return;
-
-                        // invert a full matrix here to accurately represent collider bounds scale.
-                        solverToCollider = math.inverse(float4x4.TRS(colliderToSolver.translation.xyz, colliderToSolver.rotation, colliderToSolver.scale.xyz));
-                        simplexBoundsCS = simplexBoundsSS.Transformed(solverToCollider);
-
-                        BurstTriangleMesh triangleMeshShape = new BurstTriangleMesh()
-                        {
-                            colliderToSolver = colliderToSolver,
-                            solverToWorld = solverToWorld,
-                            shape = shape,
-                            header = triangleMeshHeaders[shape.dataIndex],
-                            bihNodes = bihNodes,
-                            triangles = triangles,
-                            vertices = vertices,
-                            collisionMargin = parameters.collisionMargin,
-                            dt = deltaTime
-                        };
-
-                        triangleMeshShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsCS,
-                                                    simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-
-                        break;
-                    case ColliderShape.ShapeType.EdgeMesh:
-
-                        if (shape.dataIndex < 0) return;
-
-                        // invert a full matrix here to accurately represent collider bounds scale.
-                        solverToCollider = math.inverse(float4x4.TRS(colliderToSolver.translation.xyz, colliderToSolver.rotation, colliderToSolver.scale.xyz));
-                        simplexBoundsCS = simplexBoundsSS.Transformed(solverToCollider);
-
-                        BurstEdgeMesh edgeMeshShape = new BurstEdgeMesh()
-                        {
-                            colliderToSolver = colliderToSolver,
-                            shape = shape,
-                            header = edgeMeshHeaders[shape.dataIndex],
-                            edgeBihNodes = edgeBihNodes,
-                            edges = edges,
-                            vertices = edgeVertices,
-                            dt = deltaTime
-                        };
-
-                        edgeMeshShape.Contacts(colliderIndex, rigidbodyIndex, rigidbodies, positions, orientations, velocities, radii, simplices, in simplexBoundsCS,
-                                                    simplexIndex, simplexStart, simplexSize, contactsQueue, parameters.surfaceCollisionIterations, parameters.surfaceCollisionTolerance);
-
-                        break;
-                }
-            }
-
         }
 
+        [BurstCompile]
+        struct PrefixSumJob : IJob
+        {
+            [ReadOnly] public NativeArray<int> array;
+            public NativeArray<int> sum;
+
+            public void Execute()
+            {
+                sum[0] = 0;
+                for (int i = 1; i < sum.Length; ++i)
+                    sum[i] = sum[i - 1] + array[i-1];
+            }
+        }
+
+        [BurstCompile]
+        struct SortContactPairsByShape : IJob
+        {
+            public NativeQueue<Oni.ContactPair> contactPairQueue;
+            [ReadOnly] public NativeArray<BurstColliderShape> shapes;
+            [ReadOnly] public NativeArray<int> start; // prefix sum
+            public NativeArray<int> count;
+
+            public NativeList<Oni.ContactPair> contactPairs;
+
+            public void Execute()
+            {
+                contactPairs.ResizeUninitialized(contactPairQueue.Count);
+
+                while (!contactPairQueue.IsEmpty())
+                {
+                    var pair = contactPairQueue.Dequeue();
+                    int shapeType = (int)shapes[pair.bodyB].type;
+
+                    // write the pair directly at its position in the sorted array:
+                    contactPairs[start[shapeType] + (--count[shapeType])] = pair;
+                }
+            }
+        }
+
+        [BurstCompile]
+        unsafe struct ApplyForceZonesJob : IJobParallelFor
+        {
+            // particle arrays:
+            [NativeDisableParallelForRestriction] public NativeArray<float4> externalForces;
+            [NativeDisableParallelForRestriction] public NativeArray<float4> wind;
+            [NativeDisableParallelForRestriction] public NativeArray<float4> velocities;
+            [NativeDisableParallelForRestriction] public NativeArray<float4> colors;
+            [NativeDisableParallelForRestriction] public NativeArray<float> life;
+            [ReadOnly] public NativeArray<float4> positions;
+            [ReadOnly] public NativeArray<float> invMasses;
+
+            // simplex arrays:
+            [ReadOnly] public NativeArray<int> simplices;
+            [ReadOnly] public SimplexCounts simplexCounts;
+
+            // collider arrays:
+            [ReadOnly] public NativeArray<BurstAffineTransform> transforms;
+            [ReadOnly] public NativeArray<BurstColliderShape> shapes;
+            [ReadOnly] public NativeArray<ForceZone> forceZones;
+
+            // contacts
+            [ReadOnly] public NativeArray<BurstContact> contacts;
+
+            // auxiliar data:
+            [ReadOnly] public BurstAffineTransform worldToSolver;
+            [ReadOnly] public float deltaTime;
+
+            public void Execute(int i)
+            {
+                var contact = contacts[i];
+                int forceZoneIndex = shapes[contact.bodyB].forceZoneIndex;
+
+                if (forceZoneIndex >= 0)
+                {
+                    int simplexStart = simplexCounts.GetSimplexStartAndSize(contact.bodyA, out int simplexSize);
+                    for (int j = 0; j < simplexSize; ++j)
+                    {
+                        int particleIndex = simplices[simplexStart + j];
+
+                        float distance = -math.dot(positions[particleIndex] - contact.pointB, contact.normal);
+                        if (distance < 0) continue;
+
+                        float4 axis = (worldToSolver * transforms[contact.bodyB]).TransformDirection(new float4(0, 0, 1, 0));
+
+                        // calculate falloff region based on min/max distances:
+                        float falloff = 1;
+                        float range = forceZones[forceZoneIndex].maxDistance - forceZones[forceZoneIndex].minDistance;
+                        if (math.abs(range) > BurstMath.epsilon)
+                            falloff = math.pow(math.saturate((distance - forceZones[forceZoneIndex].minDistance) / range), forceZones[forceZoneIndex].falloffPower);
+
+                        float forceIntensity = forceZones[forceZoneIndex].intensity * falloff;
+                        float dampIntensity  = forceZones[forceZoneIndex].damping * falloff;
+
+                        // tint particles:
+                        float mix = math.pow(1 - math.saturate(forceZones[forceZoneIndex].color.a * falloff), deltaTime);
+                        colors[particleIndex] = math.lerp((Vector4)forceZones[forceZoneIndex].color, colors[particleIndex], mix);
+
+                        // calculate force direction, depending on the type of the force field:
+                        float4 result = float4.zero;
+                        switch (forceZones[forceZoneIndex].type)
+                        {
+                            case ForceZone.ZoneType.Radial:
+                                    result = contact.normal * forceIntensity;
+                                break;
+                            case ForceZone.ZoneType.Vortex:
+                                    result = new float4(math.cross(axis.xyz * forceIntensity, contact.normal.xyz).xyz, 0);
+                                break;
+                            case ForceZone.ZoneType.Directional:
+                                    result = axis * forceIntensity;
+                                break;
+                            default:
+                                BurstMath.AtomicAdd(life, particleIndex, -forceIntensity * deltaTime);
+                                continue;
+                        }
+
+                        // apply damping:
+                        switch (forceZones[forceZoneIndex].dampingDir)
+                        {
+                            case ForceZone.DampingDirection.ForceDirection:
+                                {
+                                    float4 forceDir = math.normalizesafe(result);
+                                    result -= forceDir * math.dot(velocities[particleIndex], forceDir) * dampIntensity;
+                                }
+                                break;
+                            case ForceZone.DampingDirection.SurfaceDirection:
+                                result -= contact.normal * math.dot(velocities[particleIndex], contact.normal) * dampIntensity;
+                                break;
+                            default:
+                                result -= velocities[particleIndex] * dampIntensity;
+                                break;
+                        }
+
+                        if (invMasses[particleIndex] > 0)
+                        {
+                            switch (forceZones[forceZoneIndex].mode)
+                            {
+                                case ForceZone.ForceMode.Acceleration:
+                                    BurstMath.AtomicAdd(externalForces, particleIndex, result / simplexSize / invMasses[particleIndex]);
+                                    break;
+                                case ForceZone.ForceMode.Force:
+                                    BurstMath.AtomicAdd(externalForces, particleIndex, result / simplexSize);
+                                    break;
+                                case ForceZone.ForceMode.Wind:
+                                    BurstMath.AtomicAdd(wind, particleIndex, result / simplexSize);
+                                    break;
+                            }
+                        }
+                        
+                    }
+                }
+            }
+        }
+
+        public JobHandle ApplyForceZones(BurstSolverImpl solver, float deltaTime, JobHandle inputDeps)
+        {
+            var world = ObiColliderWorld.GetInstance();
+
+            var applyForceFieldsJob = new ApplyForceZonesJob
+            {
+                contacts = solver.abstraction.colliderContacts.AsNativeArray<BurstContact>(),
+
+                positions = solver.positions,
+                velocities = solver.velocities,
+                externalForces = solver.externalForces,
+                wind = solver.wind,
+                invMasses = solver.invMasses,
+                life = solver.life,
+                colors = solver.colors,
+
+                simplices = solver.simplices,
+                simplexCounts = solver.simplexCounts,
+
+                transforms = world.colliderTransforms.AsNativeArray<BurstAffineTransform>(),
+                shapes = world.colliderShapes.AsNativeArray<BurstColliderShape>(),
+                forceZones = world.forceZones.AsNativeArray<ForceZone>(),
+
+                worldToSolver = solver.worldToSolver,
+                deltaTime = deltaTime,
+            };
+
+            return applyForceFieldsJob.Schedule(solver.abstraction.colliderContacts.count, 64, inputDeps);
+        }
 
         public JobHandle GenerateContacts(BurstSolverImpl solver, float deltaTime, JobHandle inputDeps)
         {
@@ -509,6 +575,7 @@ namespace Obi
                 invMasses = solver.invMasses,
                 radii = solver.principalRadii,
                 filters = solver.filters,
+                particleMaterialIndices = solver.collisionMaterials,
 
                 simplices = solver.simplices,
                 simplexCounts = solver.simplexCounts,
@@ -520,31 +587,44 @@ namespace Obi
                 collisionMaterials = world.collisionMaterials.AsNativeArray<BurstCollisionMaterial>(),
                 bounds = world.colliderAabbs.AsNativeArray<BurstAabb>(),
 
-                distanceFieldHeaders = world.distanceFieldContainer.headers.AsNativeArray<DistanceFieldHeader>(),
-                distanceFieldNodes = world.distanceFieldContainer.dfNodes.AsNativeArray<BurstDFNode>(),
+                contactPairQueue = contactPairQueue.AsParallelWriter(),
+                colliderTypeCounts = colliderTypeCounts,
 
-                triangleMeshHeaders = world.triangleMeshContainer.headers.AsNativeArray<TriangleMeshHeader>(),
-                bihNodes = world.triangleMeshContainer.bihNodes.AsNativeArray<BIHNode>(),
-                triangles = world.triangleMeshContainer.triangles.AsNativeArray<Triangle>(),
-                vertices = world.triangleMeshContainer.vertices.AsNativeArray<float3>(),
-
-                edgeMeshHeaders = world.edgeMeshContainer.headers.AsNativeArray<EdgeMeshHeader>(),
-                edgeBihNodes = world.edgeMeshContainer.bihNodes.AsNativeArray<BIHNode>(),
-                edges = world.edgeMeshContainer.edges.AsNativeArray<Edge>(),
-                edgeVertices = world.edgeMeshContainer.vertices.AsNativeArray<float2>(),
-
-                heightFieldHeaders = world.heightFieldContainer.headers.AsNativeArray<HeightFieldHeader>(),
-                heightFieldSamples = world.heightFieldContainer.samples.AsNativeArray<float>(),
-
-                contactsQueue = colliderContactQueue.AsParallelWriter(),
                 solverToWorld = solver.solverToWorld,
-                worldToSolver = solver.worldToSolver,
                 deltaTime = deltaTime,
                 parameters = solver.abstraction.parameters
             };
 
-            return generateColliderContactsJob.Schedule(solver.simplexCounts.simplexCount, 16, inputDeps);
+            inputDeps = generateColliderContactsJob.Schedule(solver.simplexCounts.simplexCount, 16, inputDeps);
 
+            var prefixSumJob = new PrefixSumJob
+            {
+                array = colliderTypeCounts,
+                sum = contactOffsetsPerType
+            };
+            inputDeps = prefixSumJob.Schedule(inputDeps);
+
+            var sortPairsJob = new SortContactPairsByShape
+            {
+                contactPairQueue = contactPairQueue,
+                shapes = world.colliderShapes.AsNativeArray<BurstColliderShape>(),
+                start = contactOffsetsPerType,
+                count = colliderTypeCounts,
+                contactPairs = contactPairs
+            };
+            inputDeps = sortPairsJob.Schedule(inputDeps);
+
+            inputDeps.Complete();
+
+            inputDeps = BurstSphere.GenerateContacts(world,solver,contactPairs,colliderContactQueue,contactOffsetsPerType,deltaTime,inputDeps);
+            inputDeps = BurstBox.GenerateContacts(world,solver,contactPairs,colliderContactQueue, contactOffsetsPerType,deltaTime,inputDeps);
+            inputDeps = BurstCapsule.GenerateContacts(world, solver, contactPairs, colliderContactQueue, contactOffsetsPerType, deltaTime, inputDeps);
+            inputDeps = BurstDistanceField.GenerateContacts(world, solver, contactPairs, colliderContactQueue, contactOffsetsPerType, deltaTime, inputDeps);
+            inputDeps = BurstTriangleMesh.GenerateContacts(world, solver, contactPairs, colliderContactQueue, contactOffsetsPerType, deltaTime, inputDeps);
+            inputDeps = BurstHeightField.GenerateContacts(world, solver, contactPairs, colliderContactQueue, contactOffsetsPerType, deltaTime, inputDeps);
+            inputDeps = BurstEdgeMesh.GenerateContacts(world, solver, contactPairs, colliderContactQueue, contactOffsetsPerType, deltaTime, inputDeps);
+
+            return inputDeps;
         }
 
     }

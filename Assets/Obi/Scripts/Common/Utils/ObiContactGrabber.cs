@@ -45,7 +45,7 @@ public class ObiContactGrabber : MonoBehaviour
         }
     }
 
-    private Dictionary<ObiSolver, ObiSolver.ObiCollisionEventArgs> collisionEvents = new Dictionary<ObiSolver, ObiSolver.ObiCollisionEventArgs>();                                 /**< store the current collision event*/
+    private Dictionary<ObiSolver, ObiNativeContactList> collisionEvents = new Dictionary<ObiSolver, ObiNativeContactList>();                                 /**< store the current collision event*/
     private ObiCollider localCollider;                                                           /**< the collider on this gameObject.*/
     private HashSet<GrabbedParticle> grabbedParticles = new HashSet<GrabbedParticle>();          /**< set to store all currently grabbed particles.*/
     private HashSet<ObiActor> grabbedActors = new HashSet<ObiActor>();                           /**< set of softbodies grabbed during this step.*/
@@ -69,7 +69,7 @@ public class ObiContactGrabber : MonoBehaviour
                 solver.OnCollision -= Solver_OnCollision;
     }
 
-    private void Solver_OnCollision(object sender, Obi.ObiSolver.ObiCollisionEventArgs e)
+    private void Solver_OnCollision(object sender, ObiNativeContactList e)
     {
         collisionEvents[(ObiSolver)sender] = e;
     }
@@ -122,10 +122,10 @@ public class ObiContactGrabber : MonoBehaviour
         {
             foreach (ObiSolver solver in solvers)
             {
-                ObiSolver.ObiCollisionEventArgs collisionEvent;
+                ObiNativeContactList collisionEvent;
                 if (collisionEvents.TryGetValue(solver, out collisionEvent))
                 {
-                    foreach (Oni.Contact contact in collisionEvent.contacts)
+                    foreach (Oni.Contact contact in collisionEvent)
                     {
                         // this one is an actual collision:
                         if (contact.distance < 0.01f)

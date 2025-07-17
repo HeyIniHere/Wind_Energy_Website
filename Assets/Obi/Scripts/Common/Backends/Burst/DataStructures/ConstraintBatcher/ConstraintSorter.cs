@@ -1,4 +1,4 @@
-﻿#if (OBI_BURST && OBI_MATHEMATICS && OBI_COLLECTIONS)
+#if (OBI_BURST && OBI_MATHEMATICS && OBI_COLLECTIONS)
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -9,7 +9,7 @@ using Unity.Jobs;
 
 namespace Obi
 {
-    public class ConstraintSorter<T> where T : unmanaged, IConstraint
+    public class ConstraintSorter<T> where T : unmanaged, IConstraint 
     {
 
         public struct ConstraintComparer<K> : IComparer<K> where K : IConstraint
@@ -28,7 +28,7 @@ namespace Obi
         public JobHandle SortConstraints(int particleCount,
                                          NativeArray<T> constraints,
                                          ref NativeArray<T> sortedConstraints,
-                                         JobHandle handle)
+                                         JobHandle handle) 
         {
             // Count the amount of digits in the largest particle index that can be referenced by a constraint:
             NativeArray<int> totalCountUpToDigit = new NativeArray<int>(particleCount + 1, Allocator.TempJob);
@@ -59,16 +59,16 @@ namespace Obi
             {
                 InOutArray = sortedConstraints,
                 NextElementIndex = totalCountUpToDigit,
-                comparer = new ConstraintComparer<T>()
+                comparer =  new ConstraintComparer<T>()
             }.Schedule(totalCountUpToDigit.Length, numPerBatch, handle);
 
             return handle;
         }
 
         [BurstCompile]
-        public struct CountSortPerFirstParticleJob : IJob
+        public struct CountSortPerFirstParticleJob : IJob 
         {
-            [ReadOnly] [NativeDisableContainerSafetyRestriction] public NativeArray<T> input;
+            [ReadOnly][NativeDisableContainerSafetyRestriction] public NativeArray<T> input;
             public NativeArray<T> output;
 
             [NativeDisableContainerSafetyRestriction] public NativeArray<int> digitCount;
@@ -117,7 +117,7 @@ namespace Obi
             [NativeDisableContainerSafetyRestriction] public NativeArray<T> InOutArray;
 
             // Typically lastDigitIndex is resulting RadixSortPerBodyAJob.digitCount. nextElementIndex[i] = index of first element with bodyA index == i + 1
-            [NativeDisableContainerSafetyRestriction] [DeallocateOnJobCompletion] public NativeArray<int> NextElementIndex;
+            [NativeDisableContainerSafetyRestriction][DeallocateOnJobCompletion] public NativeArray<int> NextElementIndex;
 
             [ReadOnly] public ConstraintComparer<T> comparer;
 

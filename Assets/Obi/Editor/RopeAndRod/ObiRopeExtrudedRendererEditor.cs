@@ -16,22 +16,28 @@ namespace Obi{
 			renderer = (ObiRopeExtrudedRenderer)target;
 		}
 
-        private void BakeMesh()
+        [MenuItem("CONTEXT/ObiRopeExtrudedRenderer/Bake mesh")]
+        static void Bake(MenuCommand command)
         {
-            if (renderer != null && renderer.extrudedMesh != null)
+            ObiRopeExtrudedRenderer renderer = (ObiRopeExtrudedRenderer)command.context;
+
+            if (renderer.actor.isLoaded)
             {
-                ObiEditorUtils.SaveMesh(renderer.extrudedMesh, "Save extruded mesh", "rope mesh");
+                var system = renderer.actor.solver.GetRenderSystem<ObiRopeExtrudedRenderer>() as ObiExtrudedRopeRenderSystem;
+
+                if (system != null)
+                {
+                    var mesh = new Mesh();
+                    system.BakeMesh(renderer, ref mesh, true);
+                    ObiEditorUtils.SaveMesh(mesh, "Save rope mesh", "rope mesh");
+                    GameObject.DestroyImmediate(mesh);
+                }
             }
         }
 
         public override void OnInspectorGUI() {
 			
 			serializedObject.UpdateIfRequiredOrScript();
-
-            if (GUILayout.Button("BakeMesh"))
-            {
-                BakeMesh();
-            }
 			
 			Editor.DrawPropertiesExcluding(serializedObject,"m_Script");
 			
@@ -39,8 +45,6 @@ namespace Obi{
 			if (GUI.changed){
 				
 				serializedObject.ApplyModifiedProperties();
-				
-                renderer.UpdateRenderer(renderer.GetComponent<ObiRopeBase>());
 				
 			}
 			

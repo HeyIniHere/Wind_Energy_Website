@@ -1,11 +1,6 @@
 using UnityEditor;
 using UnityEditor.EditorTools;
-using UnityEditorInternal;
 using UnityEngine;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 
 namespace Obi
 {
@@ -18,6 +13,8 @@ namespace Obi
         static void CreateObiRope(MenuCommand menuCommand)
         {
             GameObject go = new GameObject("Obi Rope", typeof(ObiRope), typeof(ObiRopeExtrudedRenderer));
+            var renderer = go.GetComponent<ObiRopeExtrudedRenderer>();
+            renderer.material = ObiEditorUtils.GetDefaultMaterial();
             ObiEditorUtils.PlaceActorRoot(go, menuCommand);
         }
 
@@ -28,6 +25,7 @@ namespace Obi
         SerializedProperty collisionMaterial;
         SerializedProperty selfCollisions;
         SerializedProperty surfaceCollisions;
+        SerializedProperty massScale;
 
         SerializedProperty distanceConstraintsEnabled;
         SerializedProperty stretchingScale;
@@ -39,6 +37,10 @@ namespace Obi
         SerializedProperty maxBending;
         SerializedProperty plasticYield;
         SerializedProperty plasticCreep;
+
+        SerializedProperty aerodynamicsEnabled;
+        SerializedProperty drag;
+        SerializedProperty lift;
 
         SerializedProperty tearingEnabled;
         SerializedProperty tearResistanceMultiplier;
@@ -55,6 +57,7 @@ namespace Obi
             collisionMaterial = serializedObject.FindProperty("m_CollisionMaterial");
             selfCollisions = serializedObject.FindProperty("m_SelfCollisions");
             surfaceCollisions = serializedObject.FindProperty("m_SurfaceCollisions");
+            massScale = serializedObject.FindProperty("m_MassScale");
 
             distanceConstraintsEnabled = serializedObject.FindProperty("_distanceConstraintsEnabled");
             stretchingScale = serializedObject.FindProperty("_stretchingScale");
@@ -66,6 +69,10 @@ namespace Obi
             maxBending = serializedObject.FindProperty("_maxBending");
             plasticYield = serializedObject.FindProperty("_plasticYield");
             plasticCreep = serializedObject.FindProperty("_plasticCreep");
+
+            aerodynamicsEnabled = serializedObject.FindProperty("_aerodynamicsEnabled");
+            drag = serializedObject.FindProperty("_drag");
+            lift = serializedObject.FindProperty("_lift");
 
             tearingEnabled = serializedObject.FindProperty("tearingEnabled");
             tearResistanceMultiplier = serializedObject.FindProperty("tearResistanceMultiplier");
@@ -112,8 +119,29 @@ namespace Obi
 
             using (new EditorGUI.DisabledScope(ToolManager.activeToolType == typeof(ObiPathEditor)))
             {
+                GUILayout.BeginHorizontal();
                 EditorGUI.BeginChangeCheck();
+
                 EditorGUILayout.PropertyField(ropeBlueprint, new GUIContent("Blueprint"));
+
+                if (actor.ropeBlueprint == null)
+                {
+                    if (GUILayout.Button("Create", EditorStyles.miniButton, GUILayout.MaxWidth(80)))
+                    {
+                        string path = EditorUtility.SaveFilePanel("Save blueprint", "Assets/", "RopeBlueprint", "asset");
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            path = FileUtil.GetProjectRelativePath(path);
+                            ObiRopeBlueprint asset = ScriptableObject.CreateInstance<ObiRopeBlueprint>();
+
+                            AssetDatabase.CreateAsset(asset, path);
+                            AssetDatabase.SaveAssets();
+
+                            actor.ropeBlueprint = asset;
+                        }
+                    }
+                }
+
                 if (EditorGUI.EndChangeCheck())
                 {
                     foreach (var t in targets)
@@ -125,7 +153,13 @@ namespace Obi
                     foreach (var t in targets)
                         (t as ObiRope).AddToSolver();
                 }
+
+                GUILayout.EndHorizontal();
             }
+
+            GUI.enabled = !Application.isPlaying;
+            EditorGUILayout.PropertyField(massScale, new GUIContent("Mass scale"));
+            GUI.enabled = true;
 
             DoEditButton();
 
@@ -159,6 +193,11 @@ namespace Obi
                 EditorGUILayout.PropertyField(plasticCreep, new GUIContent("Plastic creep"));
             });
 
+            ObiEditorUtils.DoToggleablePropertyGroup(aerodynamicsEnabled, new GUIContent("Aerodynamics", Resources.Load<Texture2D>("Icons/ObiAerodynamicConstraints Icon")),
+            () => {
+                EditorGUILayout.PropertyField(drag, new GUIContent("Drag"));
+                EditorGUILayout.PropertyField(lift, new GUIContent("Lift"));
+            });
 
             if (GUI.changed)
                 serializedObject.ApplyModifiedProperties();

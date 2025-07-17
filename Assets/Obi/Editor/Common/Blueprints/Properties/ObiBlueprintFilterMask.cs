@@ -22,6 +22,7 @@
         public override void Set(int index, int value)
         {
             editor.blueprint.filters[index] = ObiUtils.MakeFilter(value,ObiUtils.GetCategoryFromFilter(editor.blueprint.filters[index]));
+            editor.blueprint.edited = true;
         }
         public override bool Masked(int index)
         {

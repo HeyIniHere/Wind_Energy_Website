@@ -8,8 +8,8 @@
 
 		Pass {
        
-            Offset 0, -50
-			Cull Back 
+             Offset -0.5, -0.5
+		    Cull Back 
 			Fog { Mode Off }
 
             CGPROGRAM
@@ -49,7 +49,7 @@
 
         Pass {
 
-            Offset 0, -100
+            Offset -1, -1
             Cull Back 
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha

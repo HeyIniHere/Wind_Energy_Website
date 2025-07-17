@@ -19,7 +19,7 @@ namespace Obi{
             ObiColliderWorld.GetInstance().DestroyEdgeMesh(handle);
         }
 	
-		public override bool UpdateIfNeeded (){
+		public override void UpdateIfNeeded (){
 
 			EdgeCollider2D edgeCollider = collider as EdgeCollider2D;
 
@@ -36,12 +36,14 @@ namespace Obi{
 
             // update collider:
             var shape = world.colliderShapes[index];
-            shape.is2D = 1;
+            shape.is2D = true;
             shape.type = ColliderShape.ShapeType.EdgeMesh;
             shape.filter = source.Filter;
-            shape.flags = edgeCollider.isTrigger ? 1 : 0;
-            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.handle.index : -1;
+            shape.SetSign(source.Inverted);
+            shape.isTrigger = edgeCollider.isTrigger;
+            shape.rigidbodyIndex = source.Rigidbody != null ? source.Rigidbody.Handle.index : -1;
             shape.materialIndex = source.CollisionMaterial != null ? source.CollisionMaterial.handle.index : -1;
+            shape.forceZoneIndex = source.ForceZone != null ? source.ForceZone.Handle.index : -1;
             shape.center = edgeCollider.offset;
             shape.contactOffset = source.Thickness + edgeCollider.edgeRadius;
             shape.dataIndex = handle.index;
@@ -54,10 +56,8 @@ namespace Obi{
 
             // update transform:
             var trfm = world.colliderTransforms[index];
-            trfm.FromTransform(edgeCollider.transform, true);
+            trfm.FromTransform2D(edgeCollider.transform, source.Rigidbody as ObiRigidbody2D);
             world.colliderTransforms[index] = trfm;
-
-            return true;
 		}
 
         public override void Destroy()
