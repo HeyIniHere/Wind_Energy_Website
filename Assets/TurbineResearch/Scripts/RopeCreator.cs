@@ -4,53 +4,53 @@ using System.Collections.Generic;
 using Obi;
 using TurbineResearch.Scripts;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class RopeCreator : MonoBehaviour
 {
-    private TextReader txtReader;
-    private List<List<float>> table;
-    private int nodeCount = 0;
+    private TextReader _txtReader;
+    public List<List<float>> Table;
+    private int _nodeCount = 0;
 
-    public GameObject _solver;
+    public GameObject solver;
     public Mesh linkMesh;
     public Material linkMaterial;
     public TextAsset file; 
     public Material ropeMat;
-    public int _skipLines;
-    public bool _isChain;
-    public float _thicknessScale;
+    public int skipLines;
+    public bool isChain;
+    public float thicknessScale;
     public bool skipFirstColumn;
     public int animationFrameLimit;
     public float dynamicAttachmentCompliance;
-
+    public float blueprintResolution;
+    
+    private List<GameObject> _nodes;
     public GameObject turbine;
     
     void Awake()
     {
-        txtReader = new TextReader();
-        table = txtReader.ReadCSVFile(
-            Application.dataPath + "\\Resources\\" + file.name + ".txt", _skipLines, ' ', animationFrameLimit);
+        _nodes = new List<GameObject>();
+        _txtReader = new TextReader();
+        Table = _txtReader.ReadCSVFile(
+            Application.dataPath + "\\TurbineResearch\\Text Files\\NREL_DataShort\\Short50-year_Storm_Semi-taut\\" + file.name + ".txt", skipLines, ' ', animationFrameLimit);
         SetupRope(); 
     }
 
     void SetupBlueprint(ObiRodBlueprint blueprint)
     {
-        int buffer = 0;
-        if (skipFirstColumn)
-        {
-            buffer = 1;
-        }
+        int buffer = skipFirstColumn ? 1 : 0;
         
         // Procedurally generate the rope path (a simple straight line):
         int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
         blueprint.path.Clear();
 
-        for (int i = buffer; i < table[0].Count; i += 3)
+        for (int i = buffer; i < Table[0].Count; i += 3)
         {
-            nodeCount += 1;
-            Vector3 position = new Vector3(table[0][i], table[0][i + 2], table[0][i + 1]);
+            _nodeCount += 1;
+            Vector3 position = new Vector3(Table[0][i], Table[0][i + 2], Table[0][i + 1]);
             blueprint.path.AddControlPoint(position, Vector3.zero, 
-                Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "control" + nodeCount);
+                Vector3.zero, Vector3.up, 0.1f, 0.1f, 1, filter, Color.white, "control" + _nodeCount);
         }
         blueprint.path.FlushEvents();
     }
@@ -82,14 +82,14 @@ public class RopeCreator : MonoBehaviour
         // get component reference:
         ObiRopeExtrudedRenderer ropeRenderer = ropeObject.GetComponent<ObiRopeExtrudedRenderer>();
 
-        ropeRenderer.thicknessScale = _thicknessScale;
+        ropeRenderer.thicknessScale = thicknessScale;
 
         // load the default rope section:
         ropeRenderer.section = Resources.Load<ObiRopeSection>("DefaultRopeSection");
-        
-        // set rope material
-        ropeObject.GetComponent<MeshRenderer>().material = ropeMat;
 
+        // set rope material
+        ropeRenderer.material = ropeMat;
+       
         return ropeObject;
     }
 
@@ -97,16 +97,13 @@ public class RopeCreator : MonoBehaviour
     {
         GameObject ropeObject;
 
-        if (_isChain)
-            ropeObject = CreateChain();
-        else
-            ropeObject = CreateRope();
-        
+        ropeObject = isChain ? CreateChain() : CreateRope();
+
         ObiRod rope = ropeObject.GetComponent<ObiRod>();
         
         // create a blueprint 
         ObiRodBlueprint blueprint = ScriptableObject.CreateInstance<ObiRodBlueprint>();
-        blueprint.resolution = 0.1f;
+        blueprint.resolution = blueprintResolution;
         //blueprint.keepInitialShape = false;
 
         SetupBlueprint(blueprint);
@@ -115,30 +112,25 @@ public class RopeCreator : MonoBehaviour
         while (bpSetup.MoveNext()) {}
         
         // instantiate and set the blueprint:
-        rope.rodBlueprint = ScriptableObject.Instantiate(blueprint);
+        rope.rodBlueprint = Instantiate(blueprint);
         
-        // parent the cloth under a solver to start simulation:
-        rope.transform.parent = _solver.transform;
+        // parent the rope under a solver to start simulation:
+        rope.transform.parent = solver.transform;
         
-        int buffer = 0;
-        if (skipFirstColumn)
-        {
-            buffer = 1;
-        }
+        int buffer = skipFirstColumn ? 1 : 0;
         
         int groupIndex = -1;
-        for (int i = buffer; i < table[0].Count; i += 3)
+        for (int i = buffer; i < Table[0].Count; i += 3)
         {
             groupIndex += 1;
-            Vector3 position = new Vector3(table[0][i], table[0][i + 2], table[0][i + 1]);
-            AddStaticAttachment(ropeObject, CreateEmptyGameObject( position, name + " - Node " + i/3), 
+            Vector3 position = new Vector3(Table[0][i], Table[0][i + 2], Table[0][i + 1]);
+            AddStaticAttachment(ropeObject, CreateNode( position, name + " - Node " + i/3), 
                 rope.blueprint.groups[groupIndex]);
         }
 
-        if (!_isChain)
-        {
+        if (!isChain)
             AddDynamicAttachment(ropeObject, turbine.transform, rope.blueprint.groups[groupIndex]);
-        }
+
 
         /*Vector3 position1 = new Vector3(table[0][0], table[0][2], table[0][1]);
         AddAttachment(ropeObject, CreateEmptyGameObject( position1, name + " - Node " + 0),
@@ -149,11 +141,12 @@ public class RopeCreator : MonoBehaviour
 
     }
 
-    Transform CreateEmptyGameObject(Vector3 position, string name)
+    Transform CreateNode(Vector3 position, string name)
     {
         GameObject go = new GameObject(name);
         go.transform.position = position;
         go.transform.parent = transform;
+        _nodes.Add(go);
         return go.transform;
     }
     
@@ -175,11 +168,16 @@ public class RopeCreator : MonoBehaviour
 
     public int GetNodeCount()
     {
-        return nodeCount;
+        return _nodeCount;
     }
 
     public List<List<float>> GetTable()
     {
-        return table;
+        return Table;
+    }
+
+    public GameObject GetNode(int i)
+    {
+        return _nodes[i];
     }
 }

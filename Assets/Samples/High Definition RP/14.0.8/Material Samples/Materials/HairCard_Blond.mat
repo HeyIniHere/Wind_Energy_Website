@@ -39,6 +39,8 @@ Material:
     m_Floats:
     - _Baked_Ambient_Occlusion: 0.338
     - _RECALCULATE_CARD_NORMALS: 1
+    - _StencilWriteMaskDepth: 9
+    - _StencilWriteMaskMV: 43
     m_Colors:
     - _HairStrandDirection: {r: 0, g: -1, b: 0, a: 0}
     - _Length_Color: {r: 0.6886792, g: 0.43000898, b: 0.22522837, a: 1}
