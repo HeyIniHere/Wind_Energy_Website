@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Rocks and Boulders 2.meta
 guid: 868534b776af15a4c8e5088646a8f00c
+========
+guid: dd9f820af7662d541bf4a209f32ebabc
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

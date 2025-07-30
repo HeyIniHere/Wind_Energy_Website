@@ -1,7 +1,13 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples.meta
 guid: 6c0b056137d972f46a0312ba21b6263f
 folderAsset: yes
 timeCreated: 1473947300
+========
+guid: 9c9c292c9091a7d4fbaf34fdd81b85fc
+folderAsset: yes
+timeCreated: 1473950888
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects.meta
 licenseType: Store
 DefaultImporter:
   userData: 

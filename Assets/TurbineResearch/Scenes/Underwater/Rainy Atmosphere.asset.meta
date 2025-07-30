@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/TurbineResearch/Scenes/Underwater/Rainy Atmosphere.asset.meta
 guid: 416ca4da77b5f0c48b3cb14bda0ffa88
+========
+guid: 6964ca4c5ab465b42a92b518c40c537b
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/Shared/Ramps/RampBaker.asset.meta
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 11400000

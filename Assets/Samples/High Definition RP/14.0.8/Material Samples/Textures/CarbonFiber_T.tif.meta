@@ -1,13 +1,22 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/High Definition RP/14.0.8/Material Samples/Textures/CarbonFiber_T.tif.meta
 guid: 20da4e39b0d96a14ebcdac26ce2ae5eb
+========
+guid: 0153ce75dcbf4624d93f11ff5b9882bd
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Water Effects/Textures/Splash04Albedo.tif.meta
 TextureImporter:
   fileIDToRecycleName: {}
   externalObjects: {}
   serializedVersion: 5
   mipmaps:
     mipMapMode: 0
+<<<<<<<< HEAD:Assets/Samples/High Definition RP/14.0.8/Material Samples/Textures/CarbonFiber_T.tif.meta
     enableMipMap: 1
     sRGBTexture: 0
+========
+    enableMipMap: 0
+    sRGBTexture: 1
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Water Effects/Textures/Splash04Albedo.tif.meta
     linearTexture: 0
     fadeOut: 0
     borderMipMap: 0
@@ -58,7 +67,11 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 2
     buildTarget: DefaultTexturePlatform
+<<<<<<<< HEAD:Assets/Samples/High Definition RP/14.0.8/Material Samples/Textures/CarbonFiber_T.tif.meta
     maxTextureSize: 2048
+========
+    maxTextureSize: 4096
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Water Effects/Textures/Splash04Albedo.tif.meta
     resizeAlgorithm: 0
     textureFormat: -1
     textureCompression: 1
@@ -69,7 +82,11 @@ TextureImporter:
     androidETC2FallbackOverride: 0
   - serializedVersion: 2
     buildTarget: Standalone
+<<<<<<<< HEAD:Assets/Samples/High Definition RP/14.0.8/Material Samples/Textures/CarbonFiber_T.tif.meta
     maxTextureSize: 2048
+========
+    maxTextureSize: 4096
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Water Effects/Textures/Splash04Albedo.tif.meta
     resizeAlgorithm: 0
     textureFormat: -1
     textureCompression: 1

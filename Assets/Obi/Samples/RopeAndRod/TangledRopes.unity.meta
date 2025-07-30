@@ -1,6 +1,11 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Obi/Samples/RopeAndRod/TangledRopes.unity.meta
 guid: d1c0a7d11dfd3425e80480fae4b6546c
 DefaultImporter:
+========
+guid: b3830b3b2f190ee46a9c88433e985221
+PrefabImporter:
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets/Prefabs/Climb/Ladder.prefab.meta
   externalObjects: {}
   userData: 
   assetBundleName: 

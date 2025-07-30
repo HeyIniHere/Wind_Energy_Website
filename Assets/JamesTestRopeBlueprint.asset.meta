@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/JamesTestRopeBlueprint.asset.meta
 guid: 6ad3acf8d61d88a42a1cc0da8ab1a151
+========
+guid: 3ec238cb3e80e274c844d7b56f585392
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets/AffordanceThemes/InteractionColorAffordanceTheme.asset.meta
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 11400000

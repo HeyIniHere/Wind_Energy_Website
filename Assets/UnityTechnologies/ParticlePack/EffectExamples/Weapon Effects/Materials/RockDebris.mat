@@ -7,21 +7,36 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
   m_Name: RockDebris
+========
+  m_Name: DebrisParticle
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
   m_Shader: {fileID: 4800000, guid: b7839dad95683814aa64166edc107ae2, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
   - _EMISSION
   - _NORMALMAP
+========
+  - _ALPHATEST_ON
+  - _EMISSION
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
   m_InvalidKeywords:
   - _FLIPBOOKBLENDING_OFF
   m_LightmapFlags: 0
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
   m_CustomRenderQueue: -1
   stringTagMap:
     RenderType: Opaque
+========
+  m_CustomRenderQueue: 2450
+  stringTagMap:
+    RenderType: TransparentCutout
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
   disabledShaderPasses:
   - GRABPASS
   m_LockedProperties: 
@@ -29,11 +44,19 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:
         m_Texture: {fileID: 2800000, guid: e6b70229308faa64880eac4945d59f5e, type: 3}
+========
+        m_Texture: {fileID: 2800000, guid: af1f1b45fa6b5e64894c04ceb8a592f7, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _BumpMap:
+        m_Texture: {fileID: 0}
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -53,7 +76,11 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
         m_Texture: {fileID: 0}
+========
+        m_Texture: {fileID: 2800000, guid: af1f1b45fa6b5e64894c04ceb8a592f7, type: 3}
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
@@ -70,8 +97,13 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
     - _AlphaClip: 0
     - _AlphaToMask: 0
+========
+    - _AlphaClip: 1
+    - _AlphaToMask: 1
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
     - _BlendOp: 0
@@ -89,20 +121,33 @@ Material:
     - _DistortionStrengthScaled: 0
     - _DstBlend: 0
     - _DstBlendAlpha: 0
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
     - _EmissionEnabled: 0
     - _FlipbookBlending: 0
     - _FlipbookMode: 0
     - _GlossMapScale: 1
     - _Glossiness: 0.074
+========
+    - _EmissionEnabled: 1
+    - _FlipbookBlending: 0
+    - _FlipbookMode: 0
+    - _GlossMapScale: 1
+    - _Glossiness: 0
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
     - _GlossyReflections: 1
+    - _InvFade: 1
     - _LightingEnabled: 1
     - _Metallic: 0
-    - _Mode: 0
+    - _Mode: 1
     - _OcclusionStrength: 1
     - _Parallax: 0.02
     - _QueueOffset: 0
     - _ReceiveShadows: 1
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
     - _Smoothness: 0.074
+========
+    - _Smoothness: 0
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
     - _SmoothnessTextureChannel: 0
     - _SoftParticlesEnabled: 0
     - _SoftParticlesFarFadeDistance: 1
@@ -114,6 +159,7 @@ Material:
     - _UVSec: 0
     - _ZWrite: 1
     m_Colors:
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Materials/RockDebris.mat
     - _BaseColor: {r: 0.8396226, g: 0.64603686, b: 0.42377177, a: 1}
     - _BaseColorAddSubDiff: {r: 0, g: 0, b: 0, a: 0}
     - _CameraFadeParams: {r: 0, g: Infinity, b: 0, a: 0}
@@ -122,6 +168,17 @@ Material:
     - _SoftParticleFadeParams: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
 --- !u!114 &5159909017540642579
+========
+    - _BaseColor: {r: 20.86591, g: 5.5452476, b: 0, a: 1}
+    - _BaseColorAddSubDiff: {r: 0, g: 0, b: 0, a: 0}
+    - _CameraFadeParams: {r: 0, g: Infinity, b: 0, a: 0}
+    - _Color: {r: 20.865913, g: 5.545248, b: 0, a: 1}
+    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _SoftParticleFadeParams: {r: 0, g: 0, b: 0, a: 0}
+    - _TintColor: {r: 0.5, g: 0.5, b: 0.5, a: 0.5}
+  m_BuildTextureStacks: []
+--- !u!114 &1319517677875753486
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/DebrisParticle.mat
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}

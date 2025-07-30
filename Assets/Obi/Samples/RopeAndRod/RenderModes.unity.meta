@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Obi/Samples/RopeAndRod/RenderModes.unity.meta
 guid: b5657544ccae14cb6bab0a77ecdf31f1
+========
+guid: 163adec682b5ccd4c8dbb7766c20f3fb
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/Scenes/Main.unity.meta
 DefaultImporter:
   externalObjects: {}
   userData: 

@@ -1,7 +1,13 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/High Definition RP/14.0.8/Material Samples/Meshes/Cloth.obj.meta
 guid: 5c3a756b28711f0439c33377f4d11e18
 ModelImporter:
   serializedVersion: 20100
+========
+guid: be3083a5f26d4e859d594ecbe632f87e
+ModelImporter:
+  serializedVersion: 20300
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets/Models/XRControllerLeft.fbx.meta
   internalIDToNameTable: []
   externalObjects: {}
   materials:
@@ -43,6 +49,7 @@ ModelImporter:
     importBlendShapes: 1
     importCameras: 1
     importLights: 1
+    fileIdsGeneration: 2
     swapUVChannels: 0
     generateSecondaryUV: 0
     useFileUnits: 1
@@ -94,6 +101,8 @@ ModelImporter:
   animationType: 2
   humanoidOversampling: 1
   avatarSetup: 0
+  addHumanoidExtraRootOnlyWhenUsingAvatar: 0
+  remapMaterialsIfMaterialImportModeIsNone: 1
   additionalBone: 0
   userData: 
   assetBundleName: 

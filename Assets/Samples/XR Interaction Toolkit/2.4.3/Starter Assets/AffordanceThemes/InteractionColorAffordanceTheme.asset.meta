@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets/AffordanceThemes/InteractionColorAffordanceTheme.asset.meta
 guid: 3ec238cb3e80e274c844d7b56f585392
+========
+guid: 416ca4da77b5f0c48b3cb14bda0ffa88
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/TurbineResearch/Scenes/Underwater/Rainy Atmosphere.asset.meta
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 11400000

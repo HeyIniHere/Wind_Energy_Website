@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Plugins.meta
 guid: 61dda9e7952098d40b10948a41fc5b8c
+========
+guid: 7657dd56d45ea3d47a202637d204d294
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

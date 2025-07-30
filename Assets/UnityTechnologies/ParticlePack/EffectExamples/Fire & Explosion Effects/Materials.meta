@@ -1,7 +1,13 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials.meta
 guid: d55d5882cc8028a459a0a5793070b388
 folderAsset: yes
 timeCreated: 1473950888
+========
+guid: c02f45257cf2ee5498832b070d52373d
+folderAsset: yes
+timeCreated: 1475073659
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Magic Effects/Materials.meta
 licenseType: Store
 DefaultImporter:
   userData: 

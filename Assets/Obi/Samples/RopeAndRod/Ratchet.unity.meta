@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Obi/Samples/RopeAndRod/Ratchet.unity.meta
 guid: 0dfa9dcb619204188a53a53500c16db3
+========
+guid: 319dafa5c80f29f428dc1e0d03f04177
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets/DemoScene.unity.meta
 DefaultImporter:
   externalObjects: {}
   userData: 

@@ -1,5 +1,17 @@
 fileFormatVersion: 2
+<<<<<<< HEAD
+<<<<<<<< HEAD:Assets/Samples.meta
 guid: 4b7128a1457c7214bad84759fa1cb6e7
+========
+guid: db410ebdf177e964899b0fdf12155202
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3.meta
+=======
+<<<<<<<< HEAD:Assets/Rocks and Boulders 2.meta
+guid: 868534b776af15a4c8e5088646a8f00c
+========
+guid: dd9f820af7662d541bf4a209f32ebabc
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples.meta
+>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

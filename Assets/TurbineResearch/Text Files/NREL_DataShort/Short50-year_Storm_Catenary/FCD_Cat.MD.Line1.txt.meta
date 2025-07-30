@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/TurbineResearch/Text Files/NREL_DataShort/Short50-year_Storm_Catenary/FCD_Cat.MD.Line1.txt.meta
 guid: 362000ae062b7f74398296e3edcdc969
+========
+guid: 347cb84766db00442a42d707d0eba133
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Misc Effects/Prefabs/Readme_Dissolve_Respawn_.txt.meta
 TextScriptImporter:
   externalObjects: {}
   userData: 

@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/High Definition RP.meta
 guid: b8880a649b610de4b91f4236d5b551ec
+========
+guid: c81260a3f5052a4448800d1daa305eff
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/Samples/XR Interaction Toolkit/2.4.3/Starter Assets.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

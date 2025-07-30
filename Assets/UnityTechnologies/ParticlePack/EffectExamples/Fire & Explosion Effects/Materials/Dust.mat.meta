@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/Dust.mat.meta
 guid: 53a63d52a4c231f4c8ef0f2bfc170425
+========
+guid: 6421a5a06ae9f7a47a57b67f35c73b5a
+>>>>>>>> d83be84fef5c0cf5c358371f9ef582467662c775:Assets/UnityTechnologies/ParticlePack/EffectExamples/Fire & Explosion Effects/Materials/Explosion.mat.meta
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 2100000

@@ -10,7 +10,7 @@ showStatusBar = false
 scopes = {
 	"last_search.E8DA15E5" = "underwater"
 	"OpenInspectorPreview.E8DA15E5" = "0"
-	"currentGroup.E8DA15E5" = "all"
+	"currentGroup.E8DA15E5" = "_group_provider_Files"
 }
 providers = {
 	adb = {
@@ -63,7 +63,6 @@ objectSelectors = {
 }
 recentSearches = [
 	"underwater"
-	""
 ]
 searchItemFavorites = [
 ]
