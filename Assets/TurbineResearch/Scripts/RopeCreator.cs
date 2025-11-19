@@ -33,7 +33,7 @@ public class RopeCreator : MonoBehaviour
         _nodes = new List<GameObject>();
         _txtReader = new TextReader();
         Table = _txtReader.ReadCSVFile(
-            Application.dataPath + "\\TurbineResearch\\Text Files\\NREL_DataShort\\Short50-year_Storm_Semi-taut\\" + file.name + ".txt", skipLines, ' ', animationFrameLimit);
+            Application.dataPath + "/TurbineResearch/Text Files/NREL_DataShort/ShortOperational_Semi-taut/" + file.name + ".txt", skipLines, ' ', animationFrameLimit);
         SetupRope(); 
     }
 
@@ -44,6 +44,7 @@ public class RopeCreator : MonoBehaviour
         // Procedurally generate the rope path (a simple straight line):
         int filter = ObiUtils.MakeFilter(ObiUtils.CollideWithEverything, 0);
         blueprint.path.Clear();
+        Debug.Log(Table);
 
         for (int i = buffer; i < Table[0].Count; i += 3)
         {
@@ -127,6 +128,10 @@ public class RopeCreator : MonoBehaviour
             AddStaticAttachment(ropeObject, CreateNode( position, name + " - Node " + i/3), 
                 rope.blueprint.groups[groupIndex]);
         }
+        
+        Debug.Log("table " + Table[0].Count);
+        Debug.Log("index " + groupIndex);
+        Debug.Log("ct " + rope.blueprint.groups.Count);
 
         if (!isChain)
             AddDynamicAttachment(ropeObject, turbine.transform, rope.blueprint.groups[groupIndex]);

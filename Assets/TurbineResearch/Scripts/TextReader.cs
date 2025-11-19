@@ -47,12 +47,12 @@ namespace TurbineResearch.Scripts
                             table[loopCounter].Add(float.Parse(data));
                         }
                         catch (Exception e) {
-                            Debug.Log(data);
+                            throw new Exception("Error parsing data in line " + (loopCounter + 1) + "with data " + data + ": " + e.Message);
                         }  
                         
                     }
                 }
-
+                Debug.Log("have we reached here?");
                 loopCounter += 1;
             }
 
