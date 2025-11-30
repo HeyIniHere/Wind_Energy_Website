@@ -3908,11 +3908,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 0
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &585558278
 Transform:
@@ -4609,11 +4609,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 1
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &690795388
 Transform:
@@ -6224,8 +6224,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   simulateWhenInvisible: 1
-  m_Backend: 1
-  substeps: 4
+  m_Backend: 0
+  substeps: 8
   maxStepsPerFrame: 1
   synchronization: 0
   parameters:
@@ -6257,7 +6257,7 @@ MonoBehaviour:
   boundaryLimits:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 5, y: 5, z: 5}
-  gravity: {x: 0, y: -9.81, z: 0}
+  gravity: {x: 0, y: 0, z: 0}
   gravitySpace: 1
   ambientWind: {x: 0, y: 0, z: 0}
   windSpace: 1
@@ -6347,14 +6347,14 @@ MonoBehaviour:
     SORFactor: 1
     enabled: 1
   stretchShearConstraintParameters:
-    evaluationOrder: 0
-    iterations: 1
-    SORFactor: 1
+    evaluationOrder: 1
+    iterations: 8
+    SORFactor: 1.5
     enabled: 1
   bendTwistConstraintParameters:
-    evaluationOrder: 0
-    iterations: 1
-    SORFactor: 1
+    evaluationOrder: 1
+    iterations: 8
+    SORFactor: 1.5
     enabled: 1
   chainConstraintParameters:
     evaluationOrder: 0
@@ -6887,7 +6887,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1041474602
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7139,11 +7139,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 1
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &1054356527
 Transform:
@@ -8137,11 +8137,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 1
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &1133638515
 Transform:
@@ -9046,11 +9046,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 0
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &1259071381
 Transform:
@@ -11418,11 +11418,11 @@ MonoBehaviour:
   ropeMat: {fileID: 2100000, guid: edf4fbb0c32c4244d8e60fe4d7bc67b6, type: 2}
   skipLines: 2
   isChain: 0
-  thicknessScale: 10
+  thicknessScale: 6
   skipFirstColumn: 1
-  animationFrameLimit: 1000
-  dynamicAttachmentCompliance: 1
-  blueprintResolution: 1
+  animationFrameLimit: 15000
+  dynamicAttachmentCompliance: 0.008
+  blueprintResolution: 0.5
   turbine: {fileID: 132395422}
 --- !u!4 &1445633232
 Transform:
@@ -12706,6 +12706,8 @@ GameObject:
   - component: {fileID: 1609232142}
   - component: {fileID: 1609232141}
   - component: {fileID: 1609232143}
+  - component: {fileID: 1609232145}
+  - component: {fileID: 1609232144}
   m_Layer: 0
   m_Name: RopeManager - Storm
   m_TagString: Untagged
@@ -12768,9 +12770,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 94f5dc37f09900d4bb2ad2417e701e9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  connectorPart: {fileID: 919132149155446097, guid: 1f356e7b89b52994a966836d80cd64c6, type: 3}
+  connectorPart: {fileID: 8711328656597364712, guid: e03a73bdeae03b342a9055577a7a844f, type: 3}
   rope: {fileID: 1445633230}
   chain: {fileID: 690795386}
+--- !u!114 &1609232144
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1609232140}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94f5dc37f09900d4bb2ad2417e701e9b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  connectorPart: {fileID: 8711328656597364712, guid: e03a73bdeae03b342a9055577a7a844f, type: 3}
+  rope: {fileID: 585558276}
+  chain: {fileID: 1054356525}
+--- !u!114 &1609232145
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1609232140}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94f5dc37f09900d4bb2ad2417e701e9b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  connectorPart: {fileID: 8711328656597364712, guid: e03a73bdeae03b342a9055577a7a844f, type: 3}
+  rope: {fileID: 1259071379}
+  chain: {fileID: 1133638513}
 --- !u!1001 &1625041576
 PrefabInstance:
   m_ObjectHideFlags: 0
